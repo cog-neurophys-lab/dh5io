@@ -1,13 +1,20 @@
 import pytest
 import dh5io
+import pathlib
 
-filename = "test.dh5"
+filename = pathlib.Path(__file__).parent / "test.dh5"
+
 
 class TestDH5RawIO:
-    dh5 = dh5io.DH5RawIO(filename)
+
+
+    def test_load(self):
+        dh5 = dh5io.DH5RawIO(filename)
 
 class TestDH5IO:
-    dh5 = dh5io.DH5IO(filename)
+
+    def test_load(self):
+        dh5 = dh5io.DH5IO(filename)
 
 
 
