@@ -37,7 +37,7 @@ Rules for creating a new class:
 
 """
 
-from .baserawio import (BaseRawIO, _signal_channel_dtype, _signal_stream_dtype,
+from neo.rawio.baserawio import (BaseRawIO, _signal_channel_dtype, _signal_stream_dtype,
                 _spike_channel_dtype, _event_channel_dtype)
 
 import numpy as np
