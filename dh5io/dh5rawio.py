@@ -57,6 +57,8 @@ class DH5File:
             for name in self.file.keys()
             if name.startswith("SPIKE") and isinstance(self.file[name], h5py.Group)
         ]
+    
+
 
     def get_spike_group_by_id(self, id: int) -> h5py.Group | None:
         return self.file.get(f"SPIKE{id}")
@@ -80,6 +82,10 @@ class DH5File:
     @staticmethod
     def get_cont_id_from_name(name: str) -> int | None:
         return int(name.lstrip("/").lstrip("CONT"))
+    
+    @staticmethod
+    def get_spike_id_from_name(name:str)->int | None:
+        return int(name.lstrip("/").lstrip("SPIKE"))
 
 
 class DH5RawIO(BaseRawIO):
@@ -161,24 +167,32 @@ class DH5RawIO(BaseRawIO):
         # can be set to any value because _spike_raw_waveforms
         # will return None
         spike_channels = []
+        waveform_units = "V"
+        waveform_offset = 0.0
 
-        for c in range(3):
-            unit_name = "unit{}".format(c)
-            unit_id = "#{}".format(c)
-            wf_units = "uV"
-            wf_gain = 1000.0 / 2**16
-            wf_offset = 0.0
-            wf_left_sweep = 20
-            wf_sampling_rate = 10000.0
+        for spike_group in self._file.get_spike_groups():
+
+            unit_name = f"{spike_group.name}/0"#"unit{}".format(c)                        
+            # TODO: loop over units in CLUSTER_INFO if present
+            unit_id = f"#{DH5File.get_spike_id_from_name(spike_group.name)}/0"            
+            
+            waveform_gain = spike_group.attrs.get("Calibration")
+            if waveform_gain is None:
+                waveform_gain = 1.0
+
+            waveform_left_samples = spike_group.attrs.get("SpikeParams")["preTrigSamples"]
+
+            # sample period in DH5 is in nano seconds
+            waveform_sampling_rate = 1 / (spike_group.attrs.get("SamplePeriod") / 1e9)
             spike_channels.append(
                 (
                     unit_name,
                     unit_id,
-                    wf_units,
-                    wf_gain,
-                    wf_offset,
-                    wf_left_sweep,
-                    wf_sampling_rate,
+                    waveform_units,
+                    waveform_gain,
+                    waveform_offset,
+                    waveform_left_samples,
+                    waveform_sampling_rate,
                 )
             )
         spike_channels = numpy.array(spike_channels, dtype=_spike_channel_dtype)
