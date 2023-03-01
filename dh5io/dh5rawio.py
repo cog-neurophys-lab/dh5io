@@ -14,22 +14,16 @@ from neo.rawio.baserawio import (
 
 
 @dataclass
-class header:
+class RawIOHeader:
     nb_block: int
-    nb_segment: int
-    signal_streams: numpy.ndarray  # with dtype=_signal_stream_dtype
+    nb_segment: list[int]
+    signal_streams: "numpy.ndarray[_signal_stream_dtype]"
+    signal_channels: "numpy.ndarray[_signal_channel_dtype]"
+    event_channels: "numpy.ndarray[_event_channel_dtype]"
+    spike_channels: "numpy.ndarray[_spike_channel_dtype]"
 
-
-_trialmap_dtype = [
-    ("name", "U64"),  # not necessarily unique
-    ("id", "U64"),  # must be unique
-    ("sampling_rate", "float64"),
-    ("dtype", "U16"),
-    ("units", "U64"),
-    ("gain", "float64"),
-    ("offset", "float64"),
-    ("stream_id", "U64"),
-]
+    def __getitem__(self, item):
+        return getattr(self, item)
 
 
 class DH5File:
@@ -54,6 +48,16 @@ class DH5File:
     def get_cont_group_by_id(self, id: int) -> h5py.Group | None:
         return self.file.get(f"CONT{id}")
 
+    def get_spike_groups(self) -> list[h5py.Group]:
+        return [self.file[name] for name in self.get_spike_group_names()]
+
+    def get_spike_group_names(self) -> list[str]:
+        return [
+            name
+            for name in self.file.keys()
+            if name.startswith("SPIKE") and isinstance(self.file[name], h5py.Group)
+        ]
+
     def get_spike_group_by_id(self, id: int) -> h5py.Group | None:
         return self.file.get(f"SPIKE{id}")
 
@@ -75,7 +79,7 @@ class DH5File:
 
     @staticmethod
     def get_cont_id_from_name(name: str) -> int | None:
-        return int(name.lstrip('/').lstrip("CONT"))
+        return int(name.lstrip("/").lstrip("CONT"))
 
 
 class DH5RawIO(BaseRawIO):
@@ -86,6 +90,7 @@ class DH5RawIO(BaseRawIO):
     rawmode: str = "one-file"
     filename: str | pathlib.Path
     _file: DH5File
+    header: RawIOHeader
 
     def __init__(self, filename: str | pathlib.Path):
         BaseRawIO.__init__(self)
@@ -99,25 +104,14 @@ class DH5RawIO(BaseRawIO):
         return self.filename
 
     def _parse_header(self):
-        """This must create
-        self.header["nb_block"]
-        self.header["nb_segment"]
-        self.header["signal_streams"]
-        self.header["signal_channels"]
-        self.header["spike_channels"]
-        self.header["event_channels"]"""
-        
-        self.header = {}
-        self.header["nb_block"] = 1
         trialmap = self._file.get_trialmap()
-        self.header["nb_segment"] = 1 if trialmap is None else trialmap.size
+        nb_segment = [1]  # if trialmap is None else trialmap.size
 
         signal_streams = []
         for cont_name in self._file.get_cont_group_names():
             stream_id = DH5File.get_cont_id_from_name(cont_name)
             signal_streams.append((cont_name, stream_id))
         signal_streams = numpy.array(signal_streams, dtype=_signal_stream_dtype)
-        self.header["signal_streams"] = signal_streams
 
         signal_channels = []
         for cont in self._file.get_cont_groups():
@@ -159,7 +153,52 @@ class DH5RawIO(BaseRawIO):
                 )
 
         signal_channels = numpy.array(signal_channels, dtype=_signal_channel_dtype)
-        self.header["signal_channels"] = signal_channels
+
+        # create fake units channels
+        # This is mandatory!!!!
+        # Note that if there is no waveform at all in the file
+        # then wf_units/wf_gain/wf_offset/wf_left_sweep/wf_sampling_rate
+        # can be set to any value because _spike_raw_waveforms
+        # will return None
+        spike_channels = []
+
+        for c in range(3):
+            unit_name = "unit{}".format(c)
+            unit_id = "#{}".format(c)
+            wf_units = "uV"
+            wf_gain = 1000.0 / 2**16
+            wf_offset = 0.0
+            wf_left_sweep = 20
+            wf_sampling_rate = 10000.0
+            spike_channels.append(
+                (
+                    unit_name,
+                    unit_id,
+                    wf_units,
+                    wf_gain,
+                    wf_offset,
+                    wf_left_sweep,
+                    wf_sampling_rate,
+                )
+            )
+        spike_channels = numpy.array(spike_channels, dtype=_spike_channel_dtype)
+
+        # creating event/epoch channel
+        # This is mandatory!!!!
+        # In RawIO epoch and event they are dealt the same way.
+        event_channels = []
+        event_channels.append(("trials", "TRIALMAP", "epoch"))
+        event_channels.append(("events", "EV02", "event"))
+        event_channels = numpy.array(event_channels, dtype=_event_channel_dtype)
+
+        self.header = RawIOHeader(
+            nb_block=1,
+            nb_segment=[1],
+            signal_streams=signal_streams,
+            signal_channels=signal_channels,
+            event_channels=event_channels,
+            spike_channels=spike_channels,
+        )
 
         self._generate_minimal_annotations()
 
