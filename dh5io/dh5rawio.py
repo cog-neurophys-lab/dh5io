@@ -57,8 +57,6 @@ class DH5File:
             for name in self.file.keys()
             if name.startswith("SPIKE") and isinstance(self.file[name], h5py.Group)
         ]
-    
-
 
     def get_spike_group_by_id(self, id: int) -> h5py.Group | None:
         return self.file.get(f"SPIKE{id}")
@@ -82,9 +80,9 @@ class DH5File:
     @staticmethod
     def get_cont_id_from_name(name: str) -> int | None:
         return int(name.lstrip("/").lstrip("CONT"))
-    
+
     @staticmethod
-    def get_spike_id_from_name(name:str)->int | None:
+    def get_spike_id_from_name(name: str) -> int | None:
         return int(name.lstrip("/").lstrip("SPIKE"))
 
 
@@ -96,12 +94,14 @@ class DH5RawIO(BaseRawIO):
     rawmode: str = "one-file"
     filename: str | pathlib.Path
     _file: DH5File
+    _trialmap: h5py.Dataset | None
     header: RawIOHeader
 
     def __init__(self, filename: str | pathlib.Path):
         BaseRawIO.__init__(self)
         self.filename = filename
         self._file = DH5File(filename)
+        self._trialmap = None
 
     def __del__(self):
         del self._file
@@ -109,16 +109,8 @@ class DH5RawIO(BaseRawIO):
     def _source_name(self):
         return self.filename
 
-    def _parse_header(self):
-        trialmap = self._file.get_trialmap()
-        nb_segment = [1]  # if trialmap is None else trialmap.size
-
-        signal_streams = []
-        for cont_name in self._file.get_cont_group_names():
-            stream_id = DH5File.get_cont_id_from_name(cont_name)
-            signal_streams.append((cont_name, stream_id))
-        signal_streams = numpy.array(signal_streams, dtype=_signal_stream_dtype)
-
+    def _parse_signal_channels(self) -> numpy.ndarray:
+        """Read info about analog signal channels from DH5 file. Called by `_parse_header`"""
         signal_channels = []
         for cont in self._file.get_cont_groups():
             data: h5py.Dataset = cont["DATA"]
@@ -140,11 +132,7 @@ class DH5RawIO(BaseRawIO):
                     else 1000 * DH5File.get_cont_id_from_name(cont.name.strip("/"))
                     + channel_index
                 )
-                gain = (
-                    all_calibrations[channel_index]
-                    if all_calibrations is not None
-                    else 1.0
-                )
+                gain = all_calibrations[channel_index] if all_calibrations is not None else 1.0
                 signal_channels.append(
                     (
                         channel_name,
@@ -158,24 +146,19 @@ class DH5RawIO(BaseRawIO):
                     )
                 )
 
-        signal_channels = numpy.array(signal_channels, dtype=_signal_channel_dtype)
+        return numpy.array(signal_channels, dtype=_signal_channel_dtype)
 
-        # create fake units channels
-        # This is mandatory!!!!
-        # Note that if there is no waveform at all in the file
-        # then wf_units/wf_gain/wf_offset/wf_left_sweep/wf_sampling_rate
-        # can be set to any value because _spike_raw_waveforms
-        # will return None
+    def _parse_spike_channels(self) -> numpy.ndarray:
+        """Read info about spike channels from DH5 file. Called by `_parse_header`"""
         spike_channels = []
         waveform_units = "V"
         waveform_offset = 0.0
 
         for spike_group in self._file.get_spike_groups():
-
-            unit_name = f"{spike_group.name}/0"#"unit{}".format(c)                        
+            unit_name = f"{spike_group.name}/0"  # "unit{}".format(c)
             # TODO: loop over units in CLUSTER_INFO if present
-            unit_id = f"#{DH5File.get_spike_id_from_name(spike_group.name)}/0"            
-            
+            unit_id = f"#{DH5File.get_spike_id_from_name(spike_group.name)}/0"
+
             waveform_gain = spike_group.attrs.get("Calibration")
             if waveform_gain is None:
                 waveform_gain = 1.0
@@ -195,36 +178,54 @@ class DH5RawIO(BaseRawIO):
                     waveform_sampling_rate,
                 )
             )
-        spike_channels = numpy.array(spike_channels, dtype=_spike_channel_dtype)
+        return numpy.array(spike_channels, dtype=_spike_channel_dtype)
 
-        # creating event/epoch channel
-        # This is mandatory!!!!
-        # In RawIO epoch and event they are dealt the same way.
-        event_channels = []
-        event_channels.append(("trials", "TRIALMAP", "epoch"))
-        event_channels.append(("events", "EV02", "event"))
-        event_channels = numpy.array(event_channels, dtype=_event_channel_dtype)
+    def _parse_header(self):
+        _trialmap = self._file.get_trialmap()
+        nb_segment = [1] if _trialmap is None else [int(_trialmap.size)]
 
         self.header = RawIOHeader(
             nb_block=1,
-            nb_segment=[1],
-            signal_streams=signal_streams,
-            signal_channels=signal_channels,
-            event_channels=event_channels,
-            spike_channels=spike_channels,
+            nb_segment=nb_segment,
+            signal_streams=self._parse_signal_streams(),
+            signal_channels=self._parse_signal_channels(),
+            event_channels=self._parse_spike_channels(),
+            spike_channels=self._parse_event_channels(),
         )
 
         self._generate_minimal_annotations()
 
-    def _segment_t_start(self, block_index, seg_index):
-        raise (NotImplementedError)
+    def _parse_event_channels(self):
+        event_channels = []
+        event_channels.append(("trials", "TRIALMAP", "epoch"))
+        event_channels.append(("events", "EV02", "event"))
+        event_channels = numpy.array(event_channels, dtype=_event_channel_dtype)
+        return event_channels
 
-    def _segment_t_stop(self, block_index, seg_index):
-        raise (NotImplementedError)
+    def _parse_signal_streams(self):
+        """Read info about spike channels from DH5 file. Called by `_parse_header`"""
 
-    ###
+        signal_streams = []
+        for cont_name in self._file.get_cont_group_names():
+            stream_id = DH5File.get_cont_id_from_name(cont_name)
+            signal_streams.append((cont_name, stream_id))
+        signal_streams = numpy.array(signal_streams, dtype=_signal_stream_dtype)
+        return signal_streams
+
+    def _segment_t_start(self, block_index: int, seg_index: int):
+        if self.header.nb_segment > 1:
+            return self._trialmap[seg_index]["StartTime"]
+        else:
+            NotImplementedError("Data without trials is not yet supported")
+
+    def _segment_t_stop(self, block_index: int, seg_index: int):
+        if self.header.nb_segment > 1:
+            return self._trialmap[seg_index]["EndTime"]
+        else:
+            NotImplementedError("Data without trials is not yet supported")
+
     # signal and channel zone
-    def _get_signal_size(self, block_index, seg_index, stream_index):
+    def _get_signal_size(self, block_index: int, seg_index: int, stream_index: int) -> int:
         """
         Return the size of a set of AnalogSignals indexed by channel_indexes.
 
@@ -232,7 +233,7 @@ class DH5RawIO(BaseRawIO):
         """
         raise (NotImplementedError)
 
-    def _get_signal_t_start(self, block_index, seg_index, stream_index):
+    def _get_signal_t_start(self, block_index: int, seg_index: int, stream_index: int):
         """
         Return the t_start of a set of AnalogSignals indexed by channel_indexes.
 
@@ -241,8 +242,14 @@ class DH5RawIO(BaseRawIO):
         raise (NotImplementedError)
 
     def _get_analogsignal_chunk(
-        self, block_index, seg_index, i_start, i_stop, stream_index, channel_indexes
-    ):
+        self,
+        block_index: int,
+        seg_index: int,
+        i_start: int,
+        i_stop: int,
+        stream_index: int,
+        channel_indexes: None | list[int] | numpy.ndarray,
+    ) -> numpy.ndarray:
         """
         Return the samples from a set of AnalogSignals indexed
         by stream_index and channel_indexes (local index inner stream).
@@ -252,33 +259,50 @@ class DH5RawIO(BaseRawIO):
             array of samples, with each requested channel in a column
         """
 
+        # This must return a numpy array 2D (even with one channel).
         raise (NotImplementedError)
 
     # spiketrain and unit zone
-    def _spike_count(self, block_index, seg_index, spike_channel_index):
+    def _spike_count(self, block_index: int, seg_index: int, spike_channel_index) -> int:
         raise (NotImplementedError)
 
     def _get_spike_timestamps(
-        self, block_index, seg_index, spike_channel_index, t_start, t_stop
+        self,
+        block_index: int,
+        seg_index: int,
+        spike_channel_index,
+        t_start: float | None,
+        t_stop: float | None,
     ):
         raise (NotImplementedError)
 
-    def _rescale_spike_timestamp(self, spike_timestamps, dtype):
+    def _rescale_spike_timestamp(
+        self, spike_timestamps: numpy.ndarray, dtype: numpy.dtype
+    ) -> numpy.ndarray:
         raise (NotImplementedError)
 
-    # spike waveforms zone
     def _get_spike_raw_waveforms(
-        self, block_index, seg_index, spike_channel_index, t_start, t_stop
-    ):
+        self,
+        block_index: int,
+        seg_index: int,
+        spike_channel_index,
+        t_start: float | None,
+        t_stop: float | None,
+    ) -> numpy.ndarray:
+        # this must return a 3D numpy array (nb_spike, nb_channel, nb_sample)
+
         raise (NotImplementedError)
 
-    ###
-    # event and epoch zone
-    def _event_count(self, block_index, seg_index, event_channel_index):
+    def _event_count(self, block_index: int, seg_index: int, event_channel_index):
         raise (NotImplementedError)
 
     def _get_event_timestamps(
-        self, block_index, seg_index, event_channel_index, t_start, t_stop
+        self,
+        block_index: int,
+        seg_index: int,
+        event_channel_index,
+        t_start: float | None,
+        t_stop: float | None,
     ):
         raise (NotImplementedError)
 
