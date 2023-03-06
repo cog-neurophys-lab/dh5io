@@ -64,7 +64,7 @@ class DH5File:
     def get_cont_index_by_id(self, cont_id: int) -> h5py.Dataset:
         return self.get_cont_group_by_id(cont_id).get("INDEX")
 
-    def get_cont_data_by_id(self, cont_id) -> h5py.Dataset:
+    def get_cont_data_by_id(self, cont_id: int) -> h5py.Dataset:
         return self.get_cont_group_by_id(cont_id).get("DATA")
 
     def get_cont_size(self, cont_id) -> tuple[int, int]:
@@ -89,6 +89,13 @@ class DH5File:
 class DH5RawIO(BaseRawIO):
     """
     Class for reading DAQ-HDF5 (*.dh5) files from the Kreiter lab.
+
+    signal_stream : CONTn HDF5 group
+    signal_channel : one column of CONTn/DATA array
+    segment : trials in TRIALMAP
+    block : dh5 file
+
+
     """
 
     rawmode: str = "one-file"
@@ -102,6 +109,7 @@ class DH5RawIO(BaseRawIO):
         self.filename = filename
         self._file = DH5File(filename)
         self._trialmap = None
+        self.header = None
 
     def __del__(self):
         del self._file
@@ -189,8 +197,8 @@ class DH5RawIO(BaseRawIO):
             nb_segment=nb_segment,
             signal_streams=self._parse_signal_streams(),
             signal_channels=self._parse_signal_channels(),
-            event_channels=self._parse_spike_channels(),
-            spike_channels=self._parse_event_channels(),
+            event_channels=self._parse_event_channels(),
+            spike_channels=self._parse_spike_channels(),
         )
 
         self._generate_minimal_annotations()
@@ -203,7 +211,7 @@ class DH5RawIO(BaseRawIO):
         return event_channels
 
     def _parse_signal_streams(self):
-        """Read info about spike channels from DH5 file. Called by `_parse_header`"""
+        """Read info about signal streams from DH5 file. Called by `_parse_header`"""
 
         signal_streams = []
         for cont_name in self._file.get_cont_group_names():
@@ -213,16 +221,16 @@ class DH5RawIO(BaseRawIO):
         return signal_streams
 
     def _segment_t_start(self, block_index: int, seg_index: int):
-        if self.header.nb_segment > 1:
-            return self._trialmap[seg_index]["StartTime"]
-        else:
-            NotImplementedError("Data without trials is not yet supported")
+        if self.header.nb_segment == 1:
+            raise NotImplementedError("Data without trials is not yet supported")
+
+        return self._trialmap[seg_index]["StartTime"]
 
     def _segment_t_stop(self, block_index: int, seg_index: int):
-        if self.header.nb_segment > 1:
-            return self._trialmap[seg_index]["EndTime"]
-        else:
-            NotImplementedError("Data without trials is not yet supported")
+        if self.header.nb_segment == 1:
+            raise NotImplementedError("Data without trials is not yet supported")
+
+        return self._trialmap[seg_index]["EndTime"]
 
     # signal and channel zone
     def _get_signal_size(self, block_index: int, seg_index: int, stream_index: int) -> int:
@@ -231,15 +239,26 @@ class DH5RawIO(BaseRawIO):
 
         All channels indexed must have the same size and t_start.
         """
-        raise (NotImplementedError)
+        data: h5py.Dataset = self._file.get_cont_group_by_id(stream_index)["DATA"]
+        index: h5py.Dataset = self._file.get_cont_group_by_id(stream_index)["INDEX"]
 
-    def _get_signal_t_start(self, block_index: int, seg_index: int, stream_index: int):
+        iStart: int = index[seg_index]["offset"]
+
+        if seg_index == len(self._trialmap):
+            iEnd: int = data.shape[0]
+        else:
+            iEnd: int = index[seg_index + 1]["offset"]
+
+        return iEnd - iStart
+
+    def _get_signal_t_start(self, block_index: int, seg_index: int, stream_index: int) -> float:
         """
         Return the t_start of a set of AnalogSignals indexed by channel_indexes.
 
         All channels indexed must have the same size and t_start.
         """
-        raise (NotImplementedError)
+        index: h5py.Dataset = self._file.get_cont_group_by_id(stream_index)["INDEX"]
+        return index[seg_index]["time"] / 1e9
 
     def _get_analogsignal_chunk(
         self,
@@ -258,9 +277,12 @@ class DH5RawIO(BaseRawIO):
         -------
             array of samples, with each requested channel in a column
         """
+        if channel_indexes is None:
+            channel_indexes = slice(0, self._file.get_cont_data_by_id(stream_index).shape[1])
 
-        # This must return a numpy array 2D (even with one channel).
-        raise (NotImplementedError)
+        return numpy.array(
+            self._file.get_cont_data_by_id(stream_index)[i_start:i_stop, channel_indexes]
+        )
 
     # spiketrain and unit zone
     def _spike_count(self, block_index: int, seg_index: int, spike_channel_index) -> int:
