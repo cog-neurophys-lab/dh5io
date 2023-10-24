@@ -1,7 +1,7 @@
 import pathlib
 
 from neo.io.basefromrawio import BaseFromRaw
-from .dh5rawio import DH5RawIO
+from dh5io.dh5rawio import DH5RawIO
 
 
 class DH5IO(DH5RawIO, BaseFromRaw):
