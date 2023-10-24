@@ -1,3 +1,4 @@
+import os.path
 import pathlib
 import numpy
 import h5py
@@ -17,12 +18,12 @@ class DH5File:
 
     def __str__(self):
         return f"""DAQ-HDF5 File (version {self.get_version()}) {self.file.filename:s} containing:
-          ├─── {len(self.get_cont_groups()):5d} CONT Groups: {self.get_cont_group_names()}
-          ├─── {len(self.get_spike_groups()):5d} SPIKE Groups: {self.get_spike_group_names()}
-          ├─── {len(self.get_events()):5d} Events
-          └─── {len(self.get_trialmap()):5d} Trials in TRIALMAP
+├─── {len(self.get_cont_groups()):5d} CONT Groups: {self.get_cont_group_names()}
+├─── {len(self.get_spike_groups()):5d} SPIKE Groups: {self.get_spike_group_names()}
+├─── {len(self.get_events()):5d} Events
+└─── {len(self.get_trialmap()):5d} Trials in TRIALMAP
 
-        """
+Total size: {os.path.getsize(self.file.filename) / 1024 / 1024:.2f} MB"""
     
     def get_version(self) -> int | None:
         return self.file.attrs.get("FILEVERSION")
