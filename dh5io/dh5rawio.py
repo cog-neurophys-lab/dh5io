@@ -26,6 +26,7 @@ class RawIOHeader:
     def __getitem__(self, item):
         return getattr(self, item)
 
+
 class DH5RawIO(BaseRawIO):
     """
     Class for reading DAQ-HDF5 (*.dh5) files from the Kreiter lab.
@@ -48,7 +49,7 @@ class DH5RawIO(BaseRawIO):
         BaseRawIO.__init__(self)
         self.filename = filename
         self._file = DH5File(filename)
-        self._trialmap = None
+        self._trialmap = self._file.get_trialmap()
         self.header = None
 
     def __del__(self):
@@ -179,9 +180,11 @@ class DH5RawIO(BaseRawIO):
 
         All channels indexed must have the same size and t_start.
         """
-        data: h5py.Dataset = self._file.get_cont_group_by_id(stream_index)["DATA"]
-        index: h5py.Dataset = self._file.get_cont_group_by_id(stream_index)["INDEX"]
+        contId = self.header.signal_streams[stream_index]["id"]
+        data: h5py.Dataset = self._file.get_cont_group_by_id(contId)["DATA"]
+        index: h5py.Dataset = self._file.get_cont_group_by_id(contId)["INDEX"]
 
+        # FIXME: clarify how a neo segment maps to a trial / an area within a CONT block
         iStart: int = index[seg_index]["offset"]
 
         if seg_index == len(self._trialmap):
