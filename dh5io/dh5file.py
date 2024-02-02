@@ -1,6 +1,18 @@
 import pathlib
 import numpy
+import numpy.typing as npt
+import typing
 import h5py
+
+_trialmap_dtype = numpy.dtype(
+    [
+        ("TrialNo", "int32"),
+        ("StimNo", "int32"),
+        ("Outcome", "int32"),
+        ("StartTime", "int64"),
+        ("EndTime", "int64"),
+    ]
+)
 
 
 class DH5File:
@@ -20,10 +32,10 @@ class DH5File:
 
     def __str__(self):
         return f"""DAQ-HDF5 File (version {self.get_version()}) {self.file.filename:s} containing:
-          ├─── {len(self.get_cont_groups()):5d} CONT Groups: {self.get_cont_group_names()}
-          ├─── {len(self.get_spike_groups()):5d} SPIKE Groups: {self.get_spike_group_names()}
-          ├─── {len(self.get_events()):5d} Events
-          └─── {len(self.get_trialmap()):5d} Trials in TRIALMAP
+            ├─── {len(self.get_cont_groups()):5d} CONT Groups: {self.get_cont_group_names()}
+            ├─── {len(self.get_spike_groups()):5d} SPIKE Groups: {self.get_spike_group_names()}
+            ├─── {len(self.get_events()):5d} Events
+            └─── {len(self.get_trialmap()):5d} Trials in TRIALMAP
 
         """
 
@@ -85,8 +97,8 @@ class DH5File:
         return self.get_cont_group_by_id(cont_id).get("INDEX")
 
     # trialmap
-    def get_trialmap(self) -> h5py.Dataset | None:
-        return self.file.get("TRIALMAP")
+    def get_trialmap(self) -> numpy.ndarray[typing.Any, numpy.ndtype[_trialmap_dtype]] | None:
+        return numpy.array(self.file.get("TRIALMAP"), dtype=_trialmap_dtype)
 
     def get_events(self) -> h5py.Dataset | None:
         return self.file.get("EV02")
