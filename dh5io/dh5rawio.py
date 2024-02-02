@@ -3,7 +3,7 @@ import pathlib
 import numpy
 import numpy.typing as npt
 import neo
-from dh5io.dh5file import DH5File
+from dh5io.dh5file import DH5File, _trialmap_dtype
 from neo.rawio.baserawio import BaseRawIO
 import h5py
 from dataclasses import dataclass
@@ -44,7 +44,7 @@ class DH5RawIO(BaseRawIO):
     rawmode: str = "one-file"
     filename: str | pathlib.Path
     _file: DH5File
-    _trialmap: numpy.ndarray[typing.Any, DH5File._trialmap_dtype] | h5py.Dataset | None
+    _trialmap: numpy.ndarray[typing.Any, numpy.dtype[_trialmap_dtype]] | h5py.Dataset | None
     header: RawIOHeader | None
 
     def __init__(self, filename: str | pathlib.Path):
@@ -75,25 +75,19 @@ class DH5RawIO(BaseRawIO):
             offset = 0.0
 
             for channel_index in range(data.shape[1]):
-                channel_name = f"{cont.name}/{channel_index}"
-
-                channel_id = (
-                    channels["GlobalChanNumber"][channel_index]
-                    if channels is not None
-                    else 1000 * DH5File.get_cont_id_from_name(cont.name.strip("/"))
-                    + channel_index
-                )
+                cont_name = cont.name.removeprefix("/")
+                channel_name: str = f"{cont_name}/{channel_index}"
                 gain = all_calibrations[channel_index] if all_calibrations is not None else 1.0
                 signal_channels.append(
                     (
                         channel_name,
-                        channel_id,
+                        channel_name,  # currently identical to id
                         sampling_rate,
                         dtype,
                         units,
                         gain,
                         offset,
-                        DH5File.get_cont_id_from_name(cont.name),
+                        cont_name.removeprefix("/"),
                     )
                 )
 
@@ -167,8 +161,7 @@ class DH5RawIO(BaseRawIO):
 
         signal_streams = []
         for cont_name in self._file.get_cont_group_names():
-            stream_id = DH5File.get_cont_id_from_name(cont_name)
-            signal_streams.append((cont_name, stream_id))
+            signal_streams.append((cont_name, cont_name))
         return numpy.array(signal_streams, dtype=_signal_stream_dtype)
 
     def _segment_t_start(self, block_index: int, seg_index: int):
@@ -208,11 +201,16 @@ class DH5RawIO(BaseRawIO):
         if self._trialmap is None:
             raise ValueError("Trialmap not yet parsed")
 
-        contId = self.header.signal_streams[stream_index]["id"]
-        data: h5py.Dataset = self._file.get_cont_group_by_id(contId)["DATA"]
-        index: h5py.Dataset = self._file.get_cont_group_by_id(contId)["INDEX"]
+        contId: str = self.header.signal_streams[stream_index]["id"]
+        data: h5py.Dataset = self._file.file[contId]["DATA"]
+        index: h5py.Dataset = self._file.file[contId]["INDEX"]
 
         # FIXME: clarify how a neo segment maps to a trial / an area within a CONT block
+        # Segments are the trials in the trialmap. We need to find the indices in the data array
+        # that correspond to the start and end of the trial.
+        # index contains the start time and the offset in the data array, i.e. we can
+        # construct the time axis based on this information.
+
         iStart: int = index[seg_index]["offset"]
 
         if seg_index == len(self._trialmap):
@@ -228,7 +226,11 @@ class DH5RawIO(BaseRawIO):
 
         All channels indexed must have the same size and t_start.
         """
-        index: h5py.Dataset = self._file.get_cont_group_by_id(stream_index)["INDEX"]
+        if self.header is None:
+            raise ValueError("Header not yet parsed")
+
+        contId: str = self.header.signal_streams[stream_index]["id"]
+        index: h5py.Dataset = self._file.file[contId]["INDEX"]
         return index[seg_index]["time"] / 1e9
 
     def _get_analogsignal_chunk(
@@ -248,12 +250,15 @@ class DH5RawIO(BaseRawIO):
         -------
             array of samples, with each requested channel in a column
         """
-        if channel_indexes is None:
-            channel_indexes = slice(0, self._file.get_cont_data_by_id(stream_index).shape[1])
+        if self.header is None:
+            raise ValueError("Header not yet parsed")
 
-        return numpy.array(
-            self._file.get_cont_data_by_id(stream_index)[i_start:i_stop, channel_indexes]
-        )
+        contId: str = self.header.signal_streams[stream_index]["id"]
+
+        if channel_indexes is None:
+            channel_indexes = numpy.arange(self._file.file[contId]["DATA"].shape[1])
+
+        return numpy.array(self._file.file[contId][i_start:i_stop, channel_indexes])
 
     # spiketrain and unit zone
     def _spike_count(self, block_index: int, seg_index: int, spike_channel_index) -> int:
