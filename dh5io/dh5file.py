@@ -1,8 +1,10 @@
 import pathlib
+from unicodedata import category
 import numpy
 import numpy.typing as npt
 import typing
 import h5py
+import warnings
 
 _trialmap_dtype = numpy.dtype(
     [
@@ -13,6 +15,38 @@ _trialmap_dtype = numpy.dtype(
         ("EndTime", "int64"),
     ]
 )
+
+
+def get_cont_group_names_from_file(
+    filename: str | pathlib.Path | h5py.File,
+) -> list[str]:
+    if isinstance(filename, (str, pathlib.Path)):
+        with h5py.File(filename, "r") as file:
+            return [
+                name
+                for name in file.keys()
+                if name.startswith("CONT") and isinstance(file[name], h5py.Group)
+            ]
+
+    if isinstance(filename, h5py.File):
+        return [
+            name
+            for name in filename.keys()
+            if name.startswith("CONT") and isinstance(filename[name], h5py.Group)
+        ]
+
+    raise TypeError("filename must be a str, pathlib.Path or h5py.File")
+
+
+def get_cont_groups_from_file(file: str | pathlib.Path | h5py.File) -> list[h5py.Group]:
+    cont_group_names = get_cont_group_names_from_file(file)
+    if isinstance(file, (str, pathlib.Path)):
+        with h5py.File(file, "r") as file:
+            return [file[name] for name in cont_group_names]
+    if isinstance(file, h5py.File):
+        return [file[name] for name in cont_group_names]
+
+    raise TypeError("file must be a str, pathlib.Path or h5py.File")
 
 
 class DH5File:
@@ -45,21 +79,13 @@ class DH5File:
 
     # cont groups
     def get_cont_groups(self) -> list[h5py.Group]:
-        return [self.file[name] for name in self.get_cont_group_names()]
+        return get_cont_groups_from_file(self.file)
 
     def get_cont_group_names(self) -> list[str]:
-        return [
-            name
-            for name in self.file.keys()
-            if name.startswith("CONT") and isinstance(self.file[name], h5py.Group)
-        ]
+        return get_cont_groups_from_file(self.file)
 
     def get_cont_group_ids(self) -> list[int]:
-        return [
-            int(name.split("CONT")[1])
-            for name in self.file.keys()
-            if name.startswith("CONT") and isinstance(self.file[name], h5py.Group)
-        ]
+        return [int(name.split("CONT")[1]) for name in self.get_cont_group_names()]
 
     def get_cont_group_by_id(self, id: int) -> h5py.Group:
         contGroup = self.file.get(f"CONT{id}")
@@ -131,10 +157,100 @@ def validate_dh5_file(filename: str | pathlib.Path) -> None:
     if "CONT_INDEX_ITEM" not in file:
         raise DH5Error("CONT_INDEX_ITEM not found")
 
+    # CONT_INDEX_ITEM must be a compound data type with time and offset
+    cont_dtype: h5py.Datatype = file["CONT_INDEX_ITEM"]
+    if not isinstance(cont_dtype, h5py.Datatype) or cont_dtype.dtype.names != (
+        "time",
+        "offset",
+    ):
+        raise DH5Error(
+            "CONT_INDEX_ITEM is not a named data type with fields 'time' and 'offset'"
+        )
+
+    # check for CONT groups
+    cont_groups = get_cont_groups_from_file(file)
+    for cont_group in cont_groups:
+        validate_cont_group(cont_group)
+
+
+def validate_cont_group(cont_group: h5py.Group) -> None:
+    """Validate a CONT group in a DAQ-HDF5 file.
+
+    This function checks if the CONT group has the required attributes and datasets.
+    """
+    if not isinstance(cont_group, h5py.Group):
+        raise DH5Error("Not a valid HDF5 group")
+
+    if cont_group.attrs.get("Calibration") is None:
+        warnings.warn(
+            message=f"Calibration attribute is missing from CONT group {cont_group.name}",
+            category=DH5Warning,
+        )
+
+    if cont_group.attrs.get("SamplePeriod") is None:
+        raise DH5Error(
+            f"SamplePeriod attribute is missing from CONT group {cont_group.name}"
+        )
+
+    if "DATA" not in cont_group:
+        raise DH5Error(f"DATA dataset is missing from CONT group {cont_group.name}")
+
+    data = cont_group["DATA"]
+    if not isinstance(data, h5py.Dataset):
+        raise DH5Error(f"DATA dataset in {cont_group.name} is not a dataset")
+
+    # size of DATA must be (nSamples, nChannels)
+    if len(data.shape) != 2:
+        raise DH5Error(
+            f"DATA dataset in {cont_group.name} has wrong shape: {data.shape}. Must be 2D"
+        )
+
+    if "INDEX" not in cont_group:
+        raise DH5Error(f"INDEX dataset is missing from CONT group {cont_group.name}")
+
+    # INDEX must be a compound dataset with fields 'time' and 'offset'
+    if not isinstance(cont_group["INDEX"], h5py.Dataset) or cont_group[
+        "INDEX"
+    ].dtype.names != (
+        "time",
+        "offset",
+    ):
+        raise DH5Error(
+            f"INDEX dataset in {cont_group.name} is not a named data type with fields 'time' and 'offset'"
+        )
+
+    if "Channels" in cont_group.attrs:
+        channels = cont_group.attrs.get("Channels")
+        if not isinstance(channels, numpy.ndarray):
+            raise DH5Error(
+                f"Channels attribute in {cont_group.name} is not a numpy array"
+            )
+        if not channels.dtype.names == (
+            "GlobalChanNumber",
+            "BoardChanNo",
+            "ADCBitWidth",
+            "MaxVoltageRange",
+            "MinVoltageRange",
+            "AmplifChan0",
+        ):
+            raise DH5Error(
+                f"Channels attribute in {cont_group.name} has wrong dtype: {channels.dtype}. Must have fields 'GlobalChanNumber', 'BoardChanNo', 'ADCBitWidth', 'MaxVoltageRange', 'MinVoltageRange', 'AmplifyChan0'"
+            )
+    else:
+        # should be an error according to specification, but is often missing
+        warnings.warn(
+            message=f"Channels attribute is missing from CONT group {cont_group.name}",
+            category=DH5Warning,
+        )
+
 
 def create_dh5_file(filename: str | pathlib.Path, CONT_INDEX_ITEM=None):
     pass
 
 
 class DH5Error(Exception):
+    pass
+
+
+class DH5Warning(Warning):
     pass

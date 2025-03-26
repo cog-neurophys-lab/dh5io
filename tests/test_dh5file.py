@@ -67,6 +67,9 @@ class TestDH5FileCont:
     def test_validate_existing_dh5_file(self, test_file):
         validate_dh5_file(filename)
 
+    def test_validate_cont_group(self):
+        raise NotImplementedError
+
 
 class TestDH5FileSpike:
     # spike groups
