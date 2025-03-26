@@ -5,7 +5,7 @@ description = "Python tools for DAQ-HDF5 (dh5) file format used at Brain Researc
 authors = []
 license = "MIT"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["neo", "h5py", "joblib"]
 
 
@@ -16,7 +16,4 @@ pythonpath = ["."]
 line-length = 96
 
 [dependency-groups]
-dev = [
-    "pytest>=8.3.5",
-    "ruff>=0.11.2",
-]
+dev = ["pytest>=8.3.5", "ruff>=0.11.2"]
