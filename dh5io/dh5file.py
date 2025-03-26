@@ -31,15 +31,16 @@ class DH5File:
         self.file.close()
 
     def __str__(self):
-        return f"""DAQ-HDF5 File (version {self.get_version()}) {self.file.filename:s} containing:
+        return f"""
+        DAQ-HDF5 File (version {self.version}) {self.file.filename:s} containing:
             ├─── {len(self.get_cont_groups()):5d} CONT Groups: {self.get_cont_group_names()}
             ├─── {len(self.get_spike_groups()):5d} SPIKE Groups: {self.get_spike_group_names()}
             ├─── {len(self.get_events()):5d} Events
             └─── {len(self.get_trialmap()):5d} Trials in TRIALMAP
-
         """
 
-    def get_version(self) -> int | None:
+    @property
+    def version(self) -> int | None:
         return self.file.attrs.get("FILEVERSION")
 
     # cont groups
@@ -97,7 +98,7 @@ class DH5File:
         return self.get_cont_group_by_id(cont_id).get("INDEX")
 
     # trialmap
-    def get_trialmap(self) -> numpy.ndarray[typing.Any, numpy.ndtype[_trialmap_dtype]] | None:
+    def get_trialmap(self) -> numpy.ndarray | None:
         return numpy.array(self.file.get("TRIALMAP"), dtype=_trialmap_dtype)
 
     def get_events(self) -> h5py.Dataset | None:
@@ -110,6 +111,29 @@ class DH5File:
     @staticmethod
     def get_spike_id_from_name(name: str) -> int | None:
         return int(name.lstrip("/").lstrip("SPIKE"))
+
+
+def validate_dh5_file(filename: str | pathlib.Path) -> None:
+    """Validate if the given file is a valid DAQ-HDF5 file.
+
+    This function checks if the file has the required attributes and groups.
+    """
+
+    file = h5py.File(filename, "r")
+
+    if not isinstance(file, h5py.File):
+        raise DH5Error("Not a valid HDF5 file")
+
+    if file.attrs.get("FILEVERSION") is None:
+        raise DH5Error("FILEVERSION attribute is missing")
+
+    # check for named data type CONT_INDEX_ITEM
+    if "CONT_INDEX_ITEM" not in file:
+        raise DH5Error("CONT_INDEX_ITEM not found")
+
+
+def create_dh5_file(filename: str | pathlib.Path, CONT_INDEX_ITEM=None):
+    pass
 
 
 class DH5Error(Exception):

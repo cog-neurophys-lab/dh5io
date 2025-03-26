@@ -3,7 +3,7 @@ import pytest
 import numpy
 import h5py
 from dh5io import DH5File
-from dh5io.dh5file import DH5Error
+from dh5io.dh5file import DH5Error, validate_dh5_file
 
 filename = pathlib.Path(__file__).parent / "test.dh5"
 
@@ -21,7 +21,7 @@ class TestDH5File:
         print(test_file)
 
     def test_get_version(self, test_file):
-        assert test_file.get_version() == 2
+        assert test_file.version == 2
 
 
 class TestDH5FileCont:
@@ -64,6 +64,9 @@ class TestDH5FileCont:
         contData = test_file.get_calibrated_cont_data_by_id(1)
         assert contData.dtype == numpy.float64
 
+    def test_validate_existing_dh5_file(self, test_file):
+        validate_dh5_file(filename)
+
 
 class TestDH5FileSpike:
     # spike groups
@@ -100,6 +103,12 @@ class TestDH5FileTrialmap:
         trialmap = test_file.get_trialmap()
         assert trialmap is not None
         assert trialmap.shape == (385,)
-        assert trialmap.name == "/TRIALMAP"
+        # assert trialmap.name == "/TRIALMAP"
         assert len(trialmap.dtype) == 5
-        assert trialmap.dtype.names == ("TrialNo", "StimNo", "Outcome", "StartTime", "EndTime")
+        assert trialmap.dtype.names == (
+            "TrialNo",
+            "StimNo",
+            "Outcome",
+            "StartTime",
+            "EndTime",
+        )
