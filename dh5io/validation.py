@@ -4,11 +4,8 @@ from dh5io.errors import DH5Error, DH5Warning
 from dh5io.dh5file import get_cont_groups_from_file
 import warnings
 from dh5io.operations import validate_operations
-from dh5io.cont import validate_cont_group
+from dh5io.cont import validate_cont_group, validate_cont_dtype
 from dh5io.trialmap import validate_trialmap
-
-
-CONT_DTYPE_NAME = "CONT_INDEX_ITEM"
 
 
 def validate_dh5_file(file: str | pathlib.Path | h5py.File) -> None:
@@ -29,19 +26,7 @@ def validate_dh5_file(file: str | pathlib.Path | h5py.File) -> None:
     if file.attrs.get("FILEVERSION") is None:
         raise DH5Error("FILEVERSION attribute is missing")
 
-    # check for named data type CONT_INDEX_ITEM
-    if CONT_DTYPE_NAME not in file:
-        raise DH5Error("CONT_INDEX_ITEM not found")
-
-    # CONT_INDEX_ITEM must be a compound data type with time and offset
-    cont_dtype: h5py.Datatype = file[CONT_DTYPE_NAME]
-    if not isinstance(cont_dtype, h5py.Datatype) or cont_dtype.dtype.names != (
-        "time",
-        "offset",
-    ):
-        raise DH5Error(
-            "CONT_INDEX_ITEM is not a named data type with fields 'time' and 'offset'"
-        )
+    validate_cont_dtype(file)
 
     # check for CONT groups
     cont_groups = get_cont_groups_from_file(file)

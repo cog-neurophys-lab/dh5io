@@ -9,6 +9,25 @@ DATA_DATASET_NAME = "DATA"
 INDEX_DATASET_NAME = "INDEX"
 
 
+CONT_DTYPE_NAME = "CONT_INDEX_ITEM"
+
+
+def validate_cont_dtype(file: h5py.File) -> None:
+    # check for named data type /CONT_INDEX_ITEM
+    if CONT_DTYPE_NAME not in file:
+        raise DH5Error("CONT_INDEX_ITEM not found")
+
+    # CONT_INDEX_ITEM must be a compound data type with time and offset
+    cont_dtype: h5py.Datatype = file[CONT_DTYPE_NAME]
+    if not isinstance(cont_dtype, h5py.Datatype) or cont_dtype.dtype.names != (
+        "time",
+        "offset",
+    ):
+        raise DH5Error(
+            "CONT_INDEX_ITEM is not a named data type with fields 'time' and 'offset'"
+        )
+
+
 def validate_cont_group(cont_group: h5py.Group) -> None:
     """Validate a CONT group in a DAQ-HDF5 file.
 
