@@ -3,7 +3,7 @@ import pytest
 import numpy
 import h5py
 from dh5io import DH5File
-from dh5io.dh5file import DH5Error, validate_dh5_file
+from dh5io import DH5Error, validate_dh5_file
 
 filename = pathlib.Path(__file__).parent / "test.dh5"
 
@@ -43,7 +43,7 @@ class TestDH5FileCont:
             "CONT64",
         ]
 
-    def test_get_cont_group_ids(self, test_file):
+    def test_get_cont_group_ids(self, test_file: DH5File):
         contIds = test_file.get_cont_group_ids()
         assert len(contIds) == 7
         assert contIds == [1, 1001, 60, 61, 62, 63, 64]
@@ -66,9 +66,6 @@ class TestDH5FileCont:
 
     def test_validate_existing_dh5_file(self, test_file):
         validate_dh5_file(filename)
-
-    def test_validate_cont_group(self):
-        raise NotImplementedError
 
 
 class TestDH5FileSpike:

@@ -1,10 +1,7 @@
 import typing
 import pathlib
 import numpy
-import numpy.typing as npt
-import neo
 from dh5io.dh5file import DH5File, _trialmap_dtype
-from neo.rawio.baserawio import BaseRawIO
 import h5py
 from dataclasses import dataclass
 from neo.rawio.baserawio import (
@@ -44,7 +41,9 @@ class DH5RawIO(BaseRawIO):
     rawmode: str = "one-file"
     filename: str | pathlib.Path
     _file: DH5File
-    _trialmap: numpy.ndarray[typing.Any, numpy.dtype[_trialmap_dtype]] | h5py.Dataset | None
+    _trialmap: (
+        numpy.ndarray[typing.Any, numpy.dtype[_trialmap_dtype]] | h5py.Dataset | None
+    )
     header: RawIOHeader | None
 
     def __init__(self, filename: str | pathlib.Path):
@@ -77,7 +76,11 @@ class DH5RawIO(BaseRawIO):
             for channel_index in range(data.shape[1]):
                 cont_name = cont.name.removeprefix("/")
                 channel_name: str = f"{cont_name}/{channel_index}"
-                gain = all_calibrations[channel_index] if all_calibrations is not None else 1.0
+                gain = (
+                    all_calibrations[channel_index]
+                    if all_calibrations is not None
+                    else 1.0
+                )
                 signal_channels.append(
                     (
                         channel_name,
@@ -108,7 +111,9 @@ class DH5RawIO(BaseRawIO):
             if waveform_gain is None:
                 waveform_gain = 1.0
 
-            waveform_left_samples = spike_group.attrs.get("SpikeParams")["preTrigSamples"]
+            waveform_left_samples = spike_group.attrs.get("SpikeParams")[
+                "preTrigSamples"
+            ]
 
             # sample period in DH5 is in nano seconds
             waveform_sampling_rate = 1 / (spike_group.attrs.get("SamplePeriod") / 1e9)
@@ -143,7 +148,6 @@ class DH5RawIO(BaseRawIO):
     def _parse_event_channels(
         self,
     ) -> numpy.ndarray[typing.Any, numpy.dtype[_event_channel_dtype]]:
-
         event_channels = numpy.array(
             [("trials", "TRIALMAP", "epoch"), ("events", "EV02", "event")],
             dtype=_event_channel_dtype,
@@ -189,7 +193,9 @@ class DH5RawIO(BaseRawIO):
         return self._trialmap[seg_index]["EndTime"]
 
     # signal and channel zone
-    def _get_signal_size(self, block_index: int, seg_index: int, stream_index: int) -> int:
+    def _get_signal_size(
+        self, block_index: int, seg_index: int, stream_index: int
+    ) -> int:
         """
         Return the size of a set of AnalogSignals indexed by channel_indexes.
 
@@ -220,7 +226,9 @@ class DH5RawIO(BaseRawIO):
 
         return iEnd - iStart
 
-    def _get_signal_t_start(self, block_index: int, seg_index: int, stream_index: int) -> float:
+    def _get_signal_t_start(
+        self, block_index: int, seg_index: int, stream_index: int
+    ) -> float:
         """
         Return the t_start of a set of AnalogSignals indexed by channel_indexes.
 
@@ -261,7 +269,9 @@ class DH5RawIO(BaseRawIO):
         return numpy.array(self._file.file[contId][i_start:i_stop, channel_indexes])
 
     # spiketrain and unit zone
-    def _spike_count(self, block_index: int, seg_index: int, spike_channel_index) -> int:
+    def _spike_count(
+        self, block_index: int, seg_index: int, spike_channel_index
+    ) -> int:
         raise (NotImplementedError)
 
     def _get_spike_timestamps(

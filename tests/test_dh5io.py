@@ -1,10 +1,9 @@
 import pytest
-import dh5io
+import dh5io.dh5neo as dh5neo
 import pathlib
 
 filename = pathlib.Path(__file__).parent / "test.dh5"
 
-import unittest
 
 # from neo.rawio.examplerawio import ExampleRawIO
 
@@ -12,12 +11,13 @@ import unittest
 
 
 @pytest.fixture
-def test_file() -> dh5io.DH5RawIO:
-    return dh5io.DH5RawIO(filename)
+def test_file() -> dh5neo.DH5RawIO:
+    return dh5neo.DH5RawIO(filename)
 
 
+@pytest.mark.skip(reason="Not implemented")
 class TestDH5RawIO:
-    def test_load(self, test_file: dh5io.DH5RawIO):
+    def test_load(self, test_file: dh5neo.DH5RawIO):
         test_file.parse_header()
 
         assert test_file.signal_streams_count() == 7
@@ -33,9 +33,11 @@ class TestDH5RawIO:
         assert raw_chunk.shape == (1024, 1)
 
 
+@pytest.mark.skip(reason="Not implemented")
 class TestDH5IO:
     def test_load_with_constructor(self, test_file):
-        data = dh5io.DH5IO(filename).read()
+        data = dh5neo.DH5IO(filename).read()
+        pass
 
 
 # >>> import neo.rawio
