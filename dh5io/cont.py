@@ -240,6 +240,8 @@ def create_empty_cont_group_in_file(
     if signal_type is not None:
         cont_group.attrs["SignalType"] = signal_type.value
 
+    return cont_group
+
 
 def create_cont_group_from_data_in_file(
     file: h5py.File,
@@ -275,14 +277,12 @@ def create_cont_group_from_data_in_file(
 
 
 # read
-def cont_id_from_name(name: str) -> int | None:
+def cont_id_from_name(name: str) -> int:
     return int(name.lstrip("/").lstrip("CONT"))
 
 
 def enumerate_cont_groups(file: h5py.File) -> list[int]:
-    return [
-        cont_id_from_name(name) for name in file.keys() if name.startswith(CONT_PREFIX)
-    ]
+    return [cont_id_from_name(name) for name in get_cont_group_names_from_file(file)]
 
 
 def get_cont_data_by_id_from_file(file: h5py.File, cont_id: int) -> np.ndarray:

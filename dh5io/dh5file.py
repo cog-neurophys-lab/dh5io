@@ -62,6 +62,12 @@ class DH5File:
     def __del__(self):
         self.file.close()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.file.close()
+
     def __str__(self):
         return f"""
         DAQ-HDF5 File (version {self.version}) {self.file.filename:s} containing:
@@ -92,7 +98,7 @@ class DH5File:
         return cont.get_cont_data_by_id_from_file(self.file, cont_id)
 
     def get_calibrated_cont_data_by_id(self, cont_id: int) -> numpy.ndarray:
-        return cont.get_calibrated_cont_data_by_id_from_file(self.file, cont_id)
+        return cont.get_calibrated_cont_data_by_id(self.file, cont_id)
 
     def get_cont_size(self, cont_id) -> tuple[int, int]:
         nSamples, nChannels = self.get_cont_data_by_id(cont_id).shape
