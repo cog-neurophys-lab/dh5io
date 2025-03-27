@@ -125,17 +125,38 @@ region, and their respective time stamps.
 
 """
 
+from enum import Enum
 import logging
 import h5py
 import warnings
 from dh5io.errors import DH5Error, DH5Warning
 import numpy as np
+import numpy.typing as npt
 import pathlib
 
 CONT_PREFIX = "CONT"
 DATA_DATASET_NAME = "DATA"
 INDEX_DATASET_NAME = "INDEX"
 CONT_DTYPE_NAME = "CONT_INDEX_ITEM"
+
+
+class ContSignalType(Enum):
+    LFP = "LFP"
+    MUA = "MUA/ESA"
+    ANALOG = "ANALOG"
+    CSD = "CSD"
+
+
+CHANNELS_DTYPE = np.dtype(
+    [
+        ("GlobalChanNumber", np.int16),
+        ("BoardChanNo", np.int16),
+        ("ADCBitWidth", np.int16),
+        ("MaxVoltageRange", np.float32),
+        ("MinVoltageRange", np.float32),
+        ("AmplifChan0", np.float32),
+    ]
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +177,71 @@ logger = logging.getLogger(__name__)
 # %  DH.SETCONTCHANDESC (-)
 
 
-def add_cont_group_to_file(
+def cont_name_from_id(id: int) -> str:
+    return f"{CONT_PREFIX}{id}"
+
+
+# create
+def create_empty_cont_group_in_file(
+    file: h5py.File,
+    cont_group_id: int | None,
+    nSamples: int,
+    nChannels: int,
+    sample_period_ns: int,
+    n_index_items: int = 1,
+    # numpy array with dtype=np.float64 of length nChannels describing calibration
+    calibration: npt.NDArray[np.float64] | None = None,
+    # numpy array with dtype=CHANNELS_DTYPE of length nChannels describing channels
+    channels: np.ndarray | None = None,
+    name: str | None = None,
+    comment: str | None = None,
+    signal_type: ContSignalType | None = None,
+) -> h5py.Group:
+    existing_cont_ids = enumerate_cont_groups(file)
+
+    # fail if CONT group already exists
+    if cont_group_id in existing_cont_ids:
+        raise DH5Error(f"CONT{cont_group_id} already exists in {file.filename}")
+
+    if cont_group_id is None:
+        cont_group_id = np.max(np.array(existing_cont_ids)) + 1
+
+    cont_group = file.create_group(cont_name_from_id(cont_group_id))
+
+    cont_group.create_dataset(
+        DATA_DATASET_NAME, shape=(nSamples, nChannels), dtype=np.int16
+    )
+    cont_group.create_dataset(
+        INDEX_DATASET_NAME, shape=(n_index_items,), dtype=file[CONT_DTYPE_NAME]
+    )
+
+    cont_group.attrs["SamplePeriod"] = np.int32(sample_period_ns)
+
+    # optional attributes
+    if calibration is not None:
+        cont_group.attrs["Calibration"] = calibration
+
+    if channels is not None:
+        cont_group.attrs["Channels"] = channels
+
+    # set name attribute
+    if name is not None:
+        cont_group.attrs["Name"] = name
+    else:
+        cont_group.attrs["Name"] = f"CONT{cont_group_id}"
+
+    # set comment attribute
+    if comment is not None:
+        cont_group.attrs["Comment"] = comment
+    else:
+        cont_group.attrs["Comment"] = ""
+
+    # set signal type attribute
+    if signal_type is not None:
+        cont_group.attrs["SignalType"] = signal_type.value
+
+
+def create_cont_group_from_data_in_file(
     file: h5py.File,
     cont_group_id: int,  # group name will be CONT_{cont_group_id}
     cont_group_name: str,  # attribute of the CONT group
@@ -165,23 +250,31 @@ def add_cont_group_to_file(
     sample_period_ns: np.int32,
     calibration: str | None = None,
     channels: np.ndarray | None = None,
+    name: str | None = None,
+    comment: str | None = None,
+    signal_type: ContSignalType | None = None,
 ) -> h5py.Group:
-    cont_group = file.create_group(f"{CONT_PREFIX}_{cont_group_name}")
+    cont_group = create_empty_cont_group_in_file(
+        file,
+        cont_group_id,
+        nSamples=data.shape[0],
+        nChannels=data.shape[1],
+        sample_period_ns=sample_period_ns,
+        n_index_items=index.shape[0],
+        calibration=calibration,
+        channels=channels,
+        name=name,
+        comment=comment,
+        signal_type=signal_type,
+    )
 
-    cont_group.attrs["SamplePeriod"] = np.int32(sample_period_ns)
-
-    if calibration is not None:
-        cont_group.attrs["Calibration"] = calibration
-
-    if channels is not None:
-        cont_group.attrs["Channels"] = channels
-
-    cont_group.create_dataset(DATA_DATASET_NAME, data=data)
-    cont_group.create_dataset(INDEX_DATASET_NAME, data=index)
+    cont_group["DATA"] = data
+    cont_group["INDEX"] = index
 
     return cont_group
 
 
+# read
 def cont_id_from_name(name: str) -> int | None:
     return int(name.lstrip("/").lstrip("CONT"))
 
@@ -249,6 +342,13 @@ def get_cont_groups_from_file(file: str | pathlib.Path | h5py.File) -> list[h5py
     raise TypeError("file must be a str, pathlib.Path or h5py.File")
 
 
+# update
+
+# delete
+
+# validate
+
+
 def validate_cont_dtype(file: h5py.File) -> None:
     # check for named data type /CONT_INDEX_ITEM
     if CONT_DTYPE_NAME not in file:
@@ -295,6 +395,11 @@ def validate_cont_group(cont_group: h5py.Group) -> None:
     if len(data.shape) != 2:
         raise DH5Error(
             f"DATA dataset in {cont_group.name} has wrong shape: {data.shape}. Must be 2D"
+        )
+
+    if data.dtype != np.int16:
+        raise DH5Error(
+            f"DATA dataset in {cont_group.name} has wrong dtype: {data.dtype}. Must be int16"
         )
 
     if INDEX_DATASET_NAME not in cont_group:
