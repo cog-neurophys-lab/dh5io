@@ -46,8 +46,15 @@ EV_DATASET_DTYPE = np.dtype([("time", np.int64), ("event", np.int32)])
 logger = logging.getLogger(__name__)
 
 
+def get_event_triggers_dataset_from_file(file: h5py.File) -> h5py.Dataset | None:
+    return file.get(EV_DATASET_NAME)
+
+
 def get_event_triggers_from_file(file: h5py.File) -> npt.NDArray | None:
-    return np.array(file.get(EV_DATASET_NAME), dtype=EV_DATASET_DTYPE)
+    ev_dataset = file.get(EV_DATASET_NAME)
+    if ev_dataset is None:
+        return None
+    return np.array(ev_dataset, dtype=EV_DATASET_DTYPE)
 
 
 def add_event_triggers_to_file(

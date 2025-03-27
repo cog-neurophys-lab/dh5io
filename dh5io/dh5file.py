@@ -73,7 +73,7 @@ class DH5File:
         DAQ-HDF5 File (version {self.version}) {self.file.filename:s} containing:
             ├─── {len(self.get_cont_groups()):5d} CONT Groups: {self.get_cont_group_names()}
             ├─── {len(self.get_spike_groups()):5d} SPIKE Groups: {self.get_spike_group_names()}
-            ├─── {len(self.get_events()):5d} Events
+            ├─── {len(self.get_events_dataset()):5d} Events
             └─── {len(self.get_trialmap()):5d} Trials in TRIALMAP
         """
 
@@ -125,7 +125,10 @@ class DH5File:
     def get_trialmap(self) -> numpy.ndarray | None:
         return trialmap.get_trialmap_from_file(self.file)
 
-    def get_events(self) -> h5py.Dataset | None:
+    def get_events_dataset(self) -> h5py.Dataset | None:
+        return event_triggers.get_event_triggers_dataset_from_file(self.file)
+
+    def get_events_array(self) -> numpy.ndarray | None:
         return event_triggers.get_event_triggers_from_file(self.file)
 
     @staticmethod

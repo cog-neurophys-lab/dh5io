@@ -89,7 +89,7 @@ class TestDH5FileSpike:
 
 class TestDH5FileEvent:
     def test_get_events(self, test_file: DH5File):
-        events = test_file.get_events()
+        events = test_file.get_events_dataset()
         assert events is not None
         assert events.shape == (10460,)
         assert isinstance(events, h5py.Dataset)
