@@ -1,7 +1,8 @@
 import typing
 import pathlib
 import numpy
-from dh5io.dh5file import DH5File, _trialmap_dtype
+import dh5io.trialmap as trialmap
+from dh5io.dh5file import DH5File
 import h5py
 from dataclasses import dataclass
 from neo.rawio.baserawio import (
@@ -41,9 +42,7 @@ class DH5RawIO(BaseRawIO):
     rawmode: str = "one-file"
     filename: str | pathlib.Path
     _file: DH5File
-    _trialmap: (
-        numpy.ndarray[typing.Any, numpy.dtype[_trialmap_dtype]] | h5py.Dataset | None
-    )
+    _trialmap: numpy.ndarray | h5py.Dataset | None
     header: RawIOHeader | None
 
     def __init__(self, filename: str | pathlib.Path):

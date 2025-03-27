@@ -78,7 +78,11 @@ TRIALMAP_DATASET_DTYPE = numpy.dtype(
 
 
 def get_trialmap_from_file(file: h5py.File) -> numpy.ndarray | None:
-    numpy.array(file.get(TRIALMAP_DATASET_NAME), dtype=TRIALMAP_DATASET_DTYPE)
+    trialmap_dataset = file.get(TRIALMAP_DATASET_NAME)
+    if trialmap_dataset is None:
+        return None
+    else:
+        return numpy.array(trialmap_dataset, dtype=TRIALMAP_DATASET_DTYPE)
 
 
 def validate_trialmap(file: h5py.File):
