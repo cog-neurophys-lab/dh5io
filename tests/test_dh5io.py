@@ -1,26 +1,43 @@
 import pytest
-import dh5io
+import dh5io.dh5neo as dh5neo
 import pathlib
 
 filename = pathlib.Path(__file__).parent / "test.dh5"
 
 
+# from neo.rawio.examplerawio import ExampleRawIO
+
+# from neo.test.rawiotest.common_rawio_test import BaseTestRawIO
+
+
 @pytest.fixture
-def test_file() -> dh5io.DH5RawIO:
-    return dh5io.DH5RawIO(filename)
+def test_file() -> dh5neo.DH5RawIO:
+    return dh5neo.DH5RawIO(filename)
 
 
+@pytest.mark.skip(reason="Not implemented")
 class TestDH5RawIO:
-    def test_load(self, test_file: dh5io.DH5RawIO):
+    def test_load(self, test_file: dh5neo.DH5RawIO):
         test_file.parse_header()
 
         assert test_file.signal_streams_count() == 7
         assert test_file.signal_channels_count(0) == 1
         raw_chunk = test_file.get_analogsignal_chunk(
-            block_index=0, seg_index=0, i_start=0, i_stop=1024, channel_indexes=None,
-            stream_index=1
+            block_index=0,
+            seg_index=0,
+            i_start=0,
+            i_stop=1024,
+            channel_indexes=None,
+            stream_index=1,
         )
-        assert raw_chunk.shape == (1024,1)
+        assert raw_chunk.shape == (1024, 1)
+
+
+@pytest.mark.skip(reason="Not implemented")
+class TestDH5IO:
+    def test_load_with_constructor(self, test_file):
+        data = dh5neo.DH5IO(filename).read()
+        pass
 
 
 # >>> import neo.rawio
