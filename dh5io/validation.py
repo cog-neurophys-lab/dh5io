@@ -1,11 +1,15 @@
 import pathlib
 import h5py
 from dh5io.errors import DH5Error, DH5Warning
-from dh5io.dh5file import get_cont_groups_from_file
+from dh5io.cont import get_cont_groups_from_file
 import warnings
 from dh5io.operations import validate_operations
 from dh5io.cont import validate_cont_group, validate_cont_dtype
 from dh5io.trialmap import validate_trialmap
+from dh5io.event_triggers import validate_event_triggers
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def validate_dh5_file(file: str | pathlib.Path | h5py.File) -> None:
@@ -32,6 +36,8 @@ def validate_dh5_file(file: str | pathlib.Path | h5py.File) -> None:
     cont_groups = get_cont_groups_from_file(file)
     for cont_group in cont_groups:
         validate_cont_group(cont_group)
+
+    validate_event_triggers(file)
 
     validate_trialmap(file)
 
