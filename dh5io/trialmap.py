@@ -60,9 +60,25 @@ corresponding piece of signal within `CONT` or `SPIKE` blocks.
 import logging
 import h5py
 from dh5io.errors import DH5Error
+import numpy
 
 TRIALMAP_DATASET_NAME = "TRIALMAP"
 logger = logging.getLogger(__name__)
+
+
+TRIALMAP_DATASET_DTYPE = numpy.dtype(
+    [
+        ("TrialNo", "int32"),
+        ("StimNo", "int32"),
+        ("Outcome", "int32"),
+        ("StartTime", "int64"),
+        ("EndTime", "int64"),
+    ]
+)
+
+
+def get_trialmap_from_file(file: h5py.File) -> numpy.ndarray | None:
+    numpy.array(file.get(TRIALMAP_DATASET_NAME), dtype=TRIALMAP_DATASET_DTYPE)
 
 
 def validate_trialmap(file: h5py.File):
