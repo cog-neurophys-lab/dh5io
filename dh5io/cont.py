@@ -125,91 +125,24 @@ region, and their respective time stamps.
 
 """
 
-from enum import Enum
 import logging
-from re import I
 import h5py
 import warnings
 from dh5io.ensure_h5py_file import ensure_h5py_file
 from dh5io.errors import DH5Error, DH5Warning
-import numpy as np
-import numpy.typing as npt
-import pathlib
-
-CONT_PREFIX = "CONT"
-DATA_DATASET_NAME = "DATA"
-INDEX_DATASET_NAME = "INDEX"
-CONT_DTYPE_NAME = "CONT_INDEX_ITEM"
-INDEX_DTYPE = np.dtype([("time", np.int64), ("offset", np.int64)])
-
-
-class ContSignalType(Enum):
-    LFP = "LFP"
-    MUA = "MUA/ESA"
-    ANALOG = "ANALOG"
-    CSD = "CSD"
-
-
-CHANNELS_DTYPE = np.dtype(
-    [
-        ("GlobalChanNumber", np.int16),
-        ("BoardChanNo", np.int16),
-        ("ADCBitWidth", np.int16),
-        ("MaxVoltageRange", np.float32),
-        ("MinVoltageRange", np.float32),
-        ("AmplifChan0", np.float32),
-    ]
+from dhspec.cont import (
+    CalibrationType,
+    ContSignalType,
+    CONT_DTYPE_NAME,
+    CONT_PREFIX,
+    cont_id_from_name,
+    cont_name_from_id,
+    DATA_DATASET_NAME,
+    INDEX_DATASET_NAME,
 )
-
-
-def create_channel_info(
-    GlobalChanNumber: int,
-    BoardChanNo: int,
-    ADCBitWidth: int,
-    MaxVoltageRange: float,
-    MinVoltageRange: float,
-    AmplifChan0: float,
-) -> np.recarray:
-    return np.rec.array(
-        (
-            GlobalChanNumber,
-            BoardChanNo,
-            ADCBitWidth,
-            MaxVoltageRange,
-            MinVoltageRange,
-            AmplifChan0,
-        ),
-        dtype=CHANNELS_DTYPE,
-    )
-
-
-def create_empty_index_array(n_index_items: int) -> np.ndarray:
-    return np.zeros(n_index_items, dtype=INDEX_DTYPE)
-
+import numpy as np
 
 logger = logging.getLogger(__name__)
-
-# TODO
-#    DH.CREATECONT
-# %  DH.ENUMCONT
-# %  DH.READCONT
-# %  DH.WRITECONT
-# %  DH.READCONTINDEX
-# %  DH.WRITECONTINDEX
-# %  DH.GETCONTSIZE
-# %  DH.GETCONTINDEXSIZE
-# %  DH.GETCONTSAMPLEPERIOD
-# %  DH.SETCONTSAMPLEPERIOD
-# %  DH.GETCONTCALINFO
-# %  DH.SETCONTCALINFO
-# %  DH.GETCONTCHANDESC
-# %  DH.SETCONTCHANDESC (-)
-
-CalibrationType = npt.NDArray[np.float64]
-
-
-def cont_name_from_id(id: int) -> str:
-    return f"{CONT_PREFIX}{id}"
 
 
 # create
@@ -327,19 +260,17 @@ def create_cont_group_from_data_in_file(
     return cont_group
 
 
-# read
-def cont_id_from_name(name: str) -> int:
-    return int(name.lstrip("/").lstrip("CONT"))
-
-
+@ensure_h5py_file
 def enumerate_cont_groups(file: h5py.File) -> list[int]:
     return [cont_id_from_name(name) for name in get_cont_group_names_from_file(file)]
 
 
+@ensure_h5py_file
 def get_cont_data_by_id_from_file(file: h5py.File, cont_id: int) -> np.ndarray:
     return np.array(get_cont_group_by_id_from_file(file, cont_id).get("DATA")[:])
 
 
+@ensure_h5py_file
 def get_calibrated_cont_data_by_id(file: h5py.File, cont_id: int) -> np.ndarray:
     """Return calibrated data from a CONT group. If calibration attribute is
     missing, return raw data, but issue warning. The shape of the returned array
@@ -354,6 +285,7 @@ def get_calibrated_cont_data_by_id(file: h5py.File, cont_id: int) -> np.ndarray:
     return get_cont_data_by_id_from_file(file, cont_id) * calibration
 
 
+@ensure_h5py_file
 def get_cont_group_by_id_from_file(file: h5py.File, id: int) -> h5py.Group:
     contGroup = file.get(f"CONT{id}")
     if contGroup is None:
@@ -361,45 +293,27 @@ def get_cont_group_by_id_from_file(file: h5py.File, id: int) -> h5py.Group:
     return contGroup
 
 
+@ensure_h5py_file
 def get_cont_group_names_from_file(
-    filename: str | pathlib.Path | h5py.File,
+    filename: h5py.File,
 ) -> list[str]:
-    if isinstance(filename, (str, pathlib.Path)):
-        with h5py.File(filename, "r") as file:
-            return [
-                name
-                for name in file.keys()
-                if name.startswith(CONT_PREFIX) and isinstance(file[name], h5py.Group)
-            ]
-
-    if isinstance(filename, h5py.File):
-        return [
-            name
-            for name in filename.keys()
-            if name.startswith(CONT_PREFIX) and isinstance(filename[name], h5py.Group)
-        ]
-
-    raise TypeError("filename must be a str, pathlib.Path or h5py.File")
+    return [
+        name
+        for name in filename.keys()
+        if name.startswith(CONT_PREFIX) and isinstance(filename[name], h5py.Group)
+    ]
 
 
-def get_cont_groups_from_file(file: str | pathlib.Path | h5py.File) -> list[h5py.Group]:
+@ensure_h5py_file
+def get_cont_groups_from_file(file: h5py.File) -> list[h5py.Group]:
     cont_group_names = get_cont_group_names_from_file(file)
-    if isinstance(file, (str, pathlib.Path)):
-        with h5py.File(file, "r") as file:
-            return [file[name] for name in cont_group_names]
-    if isinstance(file, h5py.File):
-        return [file[name] for name in cont_group_names]
+    return [file[name] for name in cont_group_names]
 
-    raise TypeError("file must be a str, pathlib.Path or h5py.File")
-
-
-# update
-
-# delete
 
 # validate
 
 
+@ensure_h5py_file
 def validate_cont_dtype(file: h5py.File) -> None:
     # check for named data type /CONT_INDEX_ITEM
     if CONT_DTYPE_NAME not in file:
@@ -416,6 +330,7 @@ def validate_cont_dtype(file: h5py.File) -> None:
         )
 
 
+@ensure_h5py_file
 def validate_cont_group(cont_group: h5py.Group) -> None:
     """Validate a CONT group in a DAQ-HDF5 file.
 

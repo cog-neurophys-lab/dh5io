@@ -13,7 +13,7 @@ def test_file() -> DH5File:
     return DH5File(filename)
 
 
-dh5 = DH5File("tests/test.dh5")
+dh5 = DH5File("tests/test.dh5", mode="r")
 
 
 class TestDH5File:
@@ -25,12 +25,12 @@ class TestDH5File:
 
 
 class TestDH5FileCont:
-    def test_get_cont_groups(self, test_file):
+    def test_get_cont_groups(self, test_file: DH5File):
         contGroups = test_file.get_cont_groups()
         assert len(contGroups) == 7
         assert all([isinstance(cont, h5py.Group) for cont in contGroups])
 
-    def test_get_cont_group_names(self, test_file):
+    def test_get_cont_group_names(self, test_file: DH5File):
         contNames = test_file.get_cont_group_names()
         assert len(contNames) == 7
         assert contNames == [
@@ -48,7 +48,7 @@ class TestDH5FileCont:
         assert len(contIds) == 7
         assert contIds == [1, 1001, 60, 61, 62, 63, 64]
 
-    def test_get_cont_group_by_id(self, test_file):
+    def test_get_cont_group_by_id(self, test_file: DH5File):
         contGroup = test_file.get_cont_group_by_id(1)
         assert isinstance(contGroup, h5py.Group)
         assert contGroup.name == "/CONT1"
@@ -56,15 +56,15 @@ class TestDH5FileCont:
         with pytest.raises(DH5Error):
             test_file.get_cont_group_by_id(99999)
 
-    def test_get_cont_data_by_id(self, test_file):
+    def test_get_cont_data_by_id(self, test_file: DH5File):
         contData = test_file.get_cont_data_by_id(1)
         assert isinstance(contData, numpy.ndarray)
 
-    def test_get_calibrated_cont_data_by_id(self, test_file):
+    def test_get_calibrated_cont_data_by_id(self, test_file: DH5File):
         contData = test_file.get_calibrated_cont_data_by_id(1)
         assert contData.dtype == numpy.float64
 
-    def test_validate_existing_dh5_file(self, test_file):
+    def test_validate_existing_dh5_file(self, test_file: DH5File):
         validate_dh5_file(filename)
 
 
