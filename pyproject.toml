@@ -1,24 +1,28 @@
-[tool.poetry]
+[project]
 name = "dh5io"
-version = "0.1.0"
-description = "Neo IO Reader for DAQ-HDF5 format used in Kreiter Lab"
-authors = ["Joscha Schmiedt <schmiedt@uni-bremen.de>"]
+version = "0.2.0-dev"
+description = "Python tools for DAQ-HDF5 (dh5) file format used at Brain Research Institute of University of Bremen"
+authors = []
 license = "MIT"
 readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["neo", "h5py", "joblib"]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-neo = "^0.12.0"
-h5py = "^3.8.0"
-joblib = "^1.2.0"
 
-[tool.poetry.group.dev.dependencies]
-black = "^23.1.0"
-pytest = "^7.2.1"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.pytest.ini_options]
+pythonpath = ["."]
 
 [tool.black]
 line-length = 96
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+    "ipython>=9.0.2",
+    "mypy>=1.15.0",
+    "pytest>=8.3.5",
+    "ruff>=0.11.2",
+]
+dhzio = [
+    "zarr>=3.0.6",
+]

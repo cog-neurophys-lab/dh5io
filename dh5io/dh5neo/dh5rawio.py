@@ -1,8 +1,8 @@
+import typing
 import pathlib
 import numpy
-import neo
+import dh5io.trialmap as trialmap
 from dh5io.dh5file import DH5File
-from neo.rawio.baserawio import BaseRawIO
 import h5py
 from dataclasses import dataclass
 from neo.rawio.baserawio import (
@@ -17,14 +17,15 @@ from neo.rawio.baserawio import (
 @dataclass
 class RawIOHeader:
     nb_block: int
-    nb_segment: list[int]
-    signal_streams: "numpy.ndarray[_signal_stream_dtype]"
-    signal_channels: "numpy.ndarray[_signal_channel_dtype]"
-    event_channels: "numpy.ndarray[_event_channel_dtype]"
-    spike_channels: "numpy.ndarray[_spike_channel_dtype]"
+    nb_segment: list[int] | None
+    signal_streams: numpy.ndarray[typing.Any, numpy.dtype[_signal_stream_dtype]]
+    signal_channels: numpy.ndarray[typing.Any, numpy.dtype[_signal_channel_dtype]]
+    event_channels: numpy.ndarray[typing.Any, numpy.dtype[_event_channel_dtype]]
+    spike_channels: numpy.ndarray[typing.Any, numpy.dtype[_spike_channel_dtype]]
 
     def __getitem__(self, item):
         return getattr(self, item)
+
 
 class DH5RawIO(BaseRawIO):
     """
@@ -41,20 +42,20 @@ class DH5RawIO(BaseRawIO):
     rawmode: str = "one-file"
     filename: str | pathlib.Path
     _file: DH5File
-    _trialmap: h5py.Dataset | None
-    header: RawIOHeader
+    _trialmap: numpy.ndarray | h5py.Dataset | None
+    header: RawIOHeader | None
 
     def __init__(self, filename: str | pathlib.Path):
         BaseRawIO.__init__(self)
         self.filename = filename
         self._file = DH5File(filename)
-        self._trialmap = None
+        self._trialmap = self._file.get_trialmap()
         self.header = None
 
     def __del__(self):
         del self._file
 
-    def _source_name(self):
+    def _source_name(self) -> str | pathlib.Path:
         return self.filename
 
     def _parse_signal_channels(self) -> numpy.ndarray:
@@ -72,25 +73,23 @@ class DH5RawIO(BaseRawIO):
             offset = 0.0
 
             for channel_index in range(data.shape[1]):
-                channel_name = f"{cont.name}/{channel_index}"
-
-                channel_id = (
-                    channels["GlobalChanNumber"][channel_index]
-                    if channels is not None
-                    else 1000 * DH5File.get_cont_id_from_name(cont.name.strip("/"))
-                    + channel_index
+                cont_name = cont.name.removeprefix("/")
+                channel_name: str = f"{cont_name}/{channel_index}"
+                gain = (
+                    all_calibrations[channel_index]
+                    if all_calibrations is not None
+                    else 1.0
                 )
-                gain = all_calibrations[channel_index] if all_calibrations is not None else 1.0
                 signal_channels.append(
                     (
                         channel_name,
-                        channel_id,
+                        channel_name,  # currently identical to id
                         sampling_rate,
                         dtype,
                         units,
                         gain,
                         offset,
-                        DH5File.get_cont_id_from_name(cont.name),
+                        cont_name.removeprefix("/"),
                     )
                 )
 
@@ -111,7 +110,9 @@ class DH5RawIO(BaseRawIO):
             if waveform_gain is None:
                 waveform_gain = 1.0
 
-            waveform_left_samples = spike_group.attrs.get("SpikeParams")["preTrigSamples"]
+            waveform_left_samples = spike_group.attrs.get("SpikeParams")[
+                "preTrigSamples"
+            ]
 
             # sample period in DH5 is in nano seconds
             waveform_sampling_rate = 1 / (spike_group.attrs.get("SamplePeriod") / 1e9)
@@ -143,61 +144,100 @@ class DH5RawIO(BaseRawIO):
 
         self._generate_minimal_annotations()
 
-    def _parse_event_channels(self):
-        event_channels = []
-        event_channels.append(("trials", "TRIALMAP", "epoch"))
-        event_channels.append(("events", "EV02", "event"))
-        event_channels = numpy.array(event_channels, dtype=_event_channel_dtype)
+    def _parse_event_channels(
+        self,
+    ) -> numpy.ndarray[typing.Any, numpy.dtype[_event_channel_dtype]]:
+        event_channels = numpy.array(
+            [("trials", "TRIALMAP", "epoch"), ("events", "EV02", "event")],
+            dtype=_event_channel_dtype,
+        )
         return event_channels
 
-    def _parse_signal_streams(self):
-        """Read info about signal streams from DH5 file. Called by `_parse_header`"""
+    def _parse_signal_streams(
+        self,
+    ) -> numpy.ndarray[typing.Any, numpy.dtype[_signal_stream_dtype]]:
+        """Read info about signal streams from DH5 file. Called by `_parse_header`
+
+        One CONT group in the HDF5 file corresponds to one signal stream.
+
+        """
 
         signal_streams = []
         for cont_name in self._file.get_cont_group_names():
-            stream_id = DH5File.get_cont_id_from_name(cont_name)
-            signal_streams.append((cont_name, stream_id))
-        signal_streams = numpy.array(signal_streams, dtype=_signal_stream_dtype)
-        return signal_streams
+            signal_streams.append((cont_name, cont_name))
+        return numpy.array(signal_streams, dtype=_signal_stream_dtype)
 
     def _segment_t_start(self, block_index: int, seg_index: int):
+        if self.header is None:
+            raise ValueError("Header not yet parsed")
+
         if self.header.nb_segment == 1:
             raise NotImplementedError("Data without trials is not yet supported")
+
+        if self._trialmap is None:
+            raise ValueError("Trialmap not yet parsed")
 
         return self._trialmap[seg_index]["StartTime"]
 
     def _segment_t_stop(self, block_index: int, seg_index: int):
+        if self.header is None:
+            raise ValueError("Header not yet parsed")
+
         if self.header.nb_segment == 1:
             raise NotImplementedError("Data without trials is not yet supported")
+
+        if self._trialmap is None:
+            raise ValueError("Trialmap not yet parsed")
 
         return self._trialmap[seg_index]["EndTime"]
 
     # signal and channel zone
-    def _get_signal_size(self, block_index: int, seg_index: int, stream_index: int) -> int:
+    def _get_signal_size(
+        self, block_index: int, seg_index: int, stream_index: int
+    ) -> int:
         """
         Return the size of a set of AnalogSignals indexed by channel_indexes.
 
         All channels indexed must have the same size and t_start.
         """
-        data: h5py.Dataset = self._file.get_cont_group_by_id(stream_index)["DATA"]
-        index: h5py.Dataset = self._file.get_cont_group_by_id(stream_index)["INDEX"]
+        if self.header is None:
+            raise ValueError("Header not yet parsed")
+
+        if self._trialmap is None:
+            raise ValueError("Trialmap not yet parsed")
+
+        contId: str = self.header.signal_streams[stream_index]["id"]
+        data: h5py.Dataset = self._file.file[contId]["DATA"]
+        index: h5py.Dataset = self._file.file[contId]["INDEX"]
+
+        # FIXME: clarify how a neo segment maps to a trial / an area within a CONT block
+        # Segments are the trials in the trialmap. We need to find the indices in the data array
+        # that correspond to the start and end of the trial.
+        # index contains the start time and the offset in the data array, i.e. we can
+        # construct the time axis based on this information.
 
         iStart: int = index[seg_index]["offset"]
 
         if seg_index == len(self._trialmap):
             iEnd: int = data.shape[0]
         else:
-            iEnd: int = index[seg_index + 1]["offset"]
+            iEnd = index[seg_index + 1]["offset"]
 
         return iEnd - iStart
 
-    def _get_signal_t_start(self, block_index: int, seg_index: int, stream_index: int) -> float:
+    def _get_signal_t_start(
+        self, block_index: int, seg_index: int, stream_index: int
+    ) -> float:
         """
         Return the t_start of a set of AnalogSignals indexed by channel_indexes.
 
         All channels indexed must have the same size and t_start.
         """
-        index: h5py.Dataset = self._file.get_cont_group_by_id(stream_index)["INDEX"]
+        if self.header is None:
+            raise ValueError("Header not yet parsed")
+
+        contId: str = self.header.signal_streams[stream_index]["id"]
+        index: h5py.Dataset = self._file.file[contId]["INDEX"]
         return index[seg_index]["time"] / 1e9
 
     def _get_analogsignal_chunk(
@@ -217,15 +257,20 @@ class DH5RawIO(BaseRawIO):
         -------
             array of samples, with each requested channel in a column
         """
-        if channel_indexes is None:
-            channel_indexes = slice(0, self._file.get_cont_data_by_id(stream_index).shape[1])
+        if self.header is None:
+            raise ValueError("Header not yet parsed")
 
-        return numpy.array(
-            self._file.get_cont_data_by_id(stream_index)[i_start:i_stop, channel_indexes]
-        )
+        contId: str = self.header.signal_streams[stream_index]["id"]
+
+        if channel_indexes is None:
+            channel_indexes = numpy.arange(self._file.file[contId]["DATA"].shape[1])
+
+        return numpy.array(self._file.file[contId][i_start:i_stop, channel_indexes])
 
     # spiketrain and unit zone
-    def _spike_count(self, block_index: int, seg_index: int, spike_channel_index) -> int:
+    def _spike_count(
+        self, block_index: int, seg_index: int, spike_channel_index
+    ) -> int:
         raise (NotImplementedError)
 
     def _get_spike_timestamps(
