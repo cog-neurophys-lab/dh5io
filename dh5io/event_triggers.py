@@ -37,12 +37,11 @@ the event trigger encoding from other sources than the DAQ-HDF file.
 
 import logging
 from dh5io.errors import DH5Error
+from dhspec.event_triggers import EV_DATASET_DTYPE, EV_DATASET_NAME
 import h5py
 import numpy as np
 import numpy.typing as npt
 
-EV_DATASET_NAME = "EV02"
-EV_DATASET_DTYPE = np.dtype([("time", np.int64), ("event", np.int32)])
 logger = logging.getLogger(__name__)
 
 
