@@ -68,21 +68,23 @@ logger = logging.getLogger(__name__)
 
 TRIALMAP_DATASET_DTYPE = numpy.dtype(
     [
-        ("TrialNo", "int32"),
-        ("StimNo", "int32"),
-        ("Outcome", "int32"),
-        ("StartTime", "int64"),
-        ("EndTime", "int64"),
+        ("TrialNo", "<i4"),
+        ("StimNo", "<i4"),
+        ("Outcome", "<i4"),
+        ("StartTime", "<i8"),
+        ("EndTime", "<i8"),
     ]
 )
 
 
-def get_trialmap_from_file(file: h5py.File) -> numpy.ndarray | None:
+def get_trialmap_from_file(file: h5py.File) -> numpy.recarray | None:
     trialmap_dataset = file.get(TRIALMAP_DATASET_NAME)
     if trialmap_dataset is None:
         return None
     else:
-        return numpy.array(trialmap_dataset, dtype=TRIALMAP_DATASET_DTYPE)
+        return numpy.rec.array(
+            numpy.array(trialmap_dataset, dtype=TRIALMAP_DATASET_DTYPE)
+        )
 
 
 def validate_trialmap(file: h5py.File):

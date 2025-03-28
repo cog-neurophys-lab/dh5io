@@ -127,8 +127,10 @@ region, and their respective time stamps.
 
 from enum import Enum
 import logging
+from re import I
 import h5py
 import warnings
+from dh5io.ensure_h5py_file import ensure_h5py_file
 from dh5io.errors import DH5Error, DH5Warning
 import numpy as np
 import numpy.typing as npt
@@ -138,6 +140,7 @@ CONT_PREFIX = "CONT"
 DATA_DATASET_NAME = "DATA"
 INDEX_DATASET_NAME = "INDEX"
 CONT_DTYPE_NAME = "CONT_INDEX_ITEM"
+INDEX_DTYPE = np.dtype([("time", np.int64), ("offset", np.int64)])
 
 
 class ContSignalType(Enum):
@@ -158,6 +161,32 @@ CHANNELS_DTYPE = np.dtype(
     ]
 )
 
+
+def create_channel_info(
+    GlobalChanNumber: int,
+    BoardChanNo: int,
+    ADCBitWidth: int,
+    MaxVoltageRange: float,
+    MinVoltageRange: float,
+    AmplifChan0: float,
+) -> np.recarray:
+    return np.rec.array(
+        (
+            GlobalChanNumber,
+            BoardChanNo,
+            ADCBitWidth,
+            MaxVoltageRange,
+            MinVoltageRange,
+            AmplifChan0,
+        ),
+        dtype=CHANNELS_DTYPE,
+    )
+
+
+def create_empty_index_array(n_index_items: int) -> np.ndarray:
+    return np.zeros(n_index_items, dtype=INDEX_DTYPE)
+
+
 logger = logging.getLogger(__name__)
 
 # TODO
@@ -176,21 +205,24 @@ logger = logging.getLogger(__name__)
 # %  DH.GETCONTCHANDESC
 # %  DH.SETCONTCHANDESC (-)
 
+CalibrationType = npt.NDArray[np.float64]
+
 
 def cont_name_from_id(id: int) -> str:
     return f"{CONT_PREFIX}{id}"
 
 
 # create
+@ensure_h5py_file
 def create_empty_cont_group_in_file(
     file: h5py.File,
     cont_group_id: int | None,
     nSamples: int,
     nChannels: int,
-    sample_period_ns: int,
+    sample_period_ns: np.int32,
     n_index_items: int = 1,
     # numpy array with dtype=np.float64 of length nChannels describing calibration
-    calibration: npt.NDArray[np.float64] | None = None,
+    calibration: CalibrationType | None = None,
     # numpy array with dtype=CHANNELS_DTYPE of length nChannels describing channels
     channels: np.ndarray | None = None,
     name: str | None = None,
@@ -199,12 +231,21 @@ def create_empty_cont_group_in_file(
 ) -> h5py.Group:
     existing_cont_ids = enumerate_cont_groups(file)
 
+    # check if opened with write access
+    if not file.mode == "r+" and not file.mode == "w" and not file.mode == "a":
+        raise DH5Error(
+            f"File must be opened with write access but is open with {file.mode}"
+        )
+
     # fail if CONT group already exists
     if cont_group_id in existing_cont_ids:
         raise DH5Error(f"CONT{cont_group_id} already exists in {file.filename}")
 
     if cont_group_id is None:
         cont_group_id = np.max(np.array(existing_cont_ids)) + 1
+        logger.debug(
+            f"No CONT group id provided, creating new CONT group {cont_group_id}"
+        )
 
     cont_group = file.create_group(cont_name_from_id(cont_group_id))
 
@@ -229,6 +270,9 @@ def create_empty_cont_group_in_file(
         cont_group.attrs["Name"] = name
     else:
         cont_group.attrs["Name"] = f"CONT{cont_group_id}"
+        logger.debug(
+            f"Name attribute not provided, using default {cont_group.attrs['Name']}"
+        )
 
     # set comment attribute
     if comment is not None:
@@ -243,6 +287,7 @@ def create_empty_cont_group_in_file(
     return cont_group
 
 
+@ensure_h5py_file
 def create_cont_group_from_data_in_file(
     file: h5py.File,
     cont_group_id: int,  # group name will be CONT_{cont_group_id}
@@ -250,7 +295,7 @@ def create_cont_group_from_data_in_file(
     data: np.ndarray,
     index: np.ndarray,
     sample_period_ns: np.int32,
-    calibration: str | None = None,
+    calibration: CalibrationType | None = None,
     channels: np.ndarray | None = None,
     name: str | None = None,
     comment: str | None = None,
@@ -270,8 +315,14 @@ def create_cont_group_from_data_in_file(
         signal_type=signal_type,
     )
 
-    cont_group["DATA"] = data
-    cont_group["INDEX"] = index
+    # make sure data in integer type
+    if not data.dtype == np.int16:
+        warnings.warn(
+            f"Data was converted from {data.dtype} to numpy.int16", category=DH5Warning
+        )
+        data = data.astype(np.int16)
+    cont_group["DATA"][:] = data
+    cont_group["INDEX"][:] = index
 
     return cont_group
 
@@ -373,11 +424,21 @@ def validate_cont_group(cont_group: h5py.Group) -> None:
     if not isinstance(cont_group, h5py.Group):
         raise DH5Error("Not a valid HDF5 group")
 
-    if cont_group.attrs.get("Calibration") is None:
+    calibration = cont_group.attrs.get("Calibration")
+    if calibration is None:
         warnings.warn(
             message=f"Calibration attribute is missing from CONT group {cont_group.name}",
             category=DH5Warning,
         )
+    else:
+        if not isinstance(calibration, np.ndarray):
+            raise DH5Error(
+                f"Calibration attribute in {cont_group.name} is not a np array"
+            )
+        if not len(calibration) == cont_group["DATA"].shape[1]:
+            raise DH5Error(
+                f"Calibration attribute in {cont_group.name} has wrong length: {len(calibration)}. Must have length equal to number of channels"
+            )
 
     if cont_group.attrs.get("SamplePeriod") is None:
         raise DH5Error(
