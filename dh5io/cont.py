@@ -289,7 +289,7 @@ def get_calibrated_cont_data_by_id(file: h5py.File, cont_id: int) -> np.ndarray:
 
 @ensure_h5py_file
 def get_cont_group_by_id_from_file(file: h5py.File, id: int) -> h5py.Group:
-    contGroup = file.get(f"CONT{id}")
+    contGroup = file.get(cont_name_from_id(id))
     if contGroup is None:
         raise DH5Error(f"CONT{id} does not exist in {file.filename}")
     return contGroup
