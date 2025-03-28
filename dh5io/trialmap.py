@@ -61,20 +61,24 @@ import logging
 import h5py
 from dh5io.errors import DH5Error
 import numpy
+from dhspec.trialmap import TRIALMAP_DATASET_DTYPE, TRIALMAP_DATASET_NAME
 
-TRIALMAP_DATASET_NAME = "TRIALMAP"
 logger = logging.getLogger(__name__)
 
 
-TRIALMAP_DATASET_DTYPE = numpy.dtype(
-    [
-        ("TrialNo", "<i4"),
-        ("StimNo", "<i4"),
-        ("Outcome", "<i4"),
-        ("StartTime", "<i8"),
-        ("EndTime", "<i8"),
-    ]
-)
+def add_trialmap_to_file(
+    file: h5py.File, trialmap: numpy.recarray, replace=True
+) -> None:
+    if not trialmap.dtype == TRIALMAP_DATASET_DTYPE:
+        raise DH5Error(
+            f"Invalid trialmap dtype: {trialmap.dtype}. Expected {TRIALMAP_DATASET_DTYPE}"
+        )
+    if TRIALMAP_DATASET_NAME in file:
+        if not replace:
+            raise DH5Error(f"TRIALMAP dataset already exists in file {file.filename}")
+        del file[TRIALMAP_DATASET_NAME]
+        logger.debug(f"Replacing existing TRIALMAP dataset in file {file.filename}")
+    file.create_dataset(TRIALMAP_DATASET_NAME, data=trialmap)
 
 
 def get_trialmap_from_file(file: h5py.File) -> numpy.recarray | None:
@@ -90,19 +94,16 @@ def get_trialmap_from_file(file: h5py.File) -> numpy.recarray | None:
 def validate_trialmap(file: h5py.File):
     # check for TRIALMAP dataset
     if TRIALMAP_DATASET_NAME not in file:
-        logger.info(f"TRIALMAP dataset not found in file {file.filename}")
+        logger.warning(f"TRIALMAP dataset not found in file {file.filename}")
         return
     validate_trialmap_dataset(file[TRIALMAP_DATASET_NAME])
 
 
 def validate_trialmap_dataset(trialmap: h5py.Dataset) -> None:
     # trialmap must be a compound dataset with fields 'TrialNo', 'StimNo', 'Outcome', 'StartTime', 'EndTime'
-    if not isinstance(trialmap, h5py.Dataset) or trialmap.dtype.names != (
-        "TrialNo",
-        "StimNo",
-        "Outcome",
-        "StartTime",
-        "EndTime",
+    if (
+        not isinstance(trialmap, h5py.Dataset)
+        or trialmap.dtype != TRIALMAP_DATASET_DTYPE
     ):
         raise DH5Error(
             f"TRIALMAP dataset is not a named data type with fields 'TrialNo', 'StimNo', 'Outcome', 'StartTime', 'EndTime': {trialmap.dtype}"
