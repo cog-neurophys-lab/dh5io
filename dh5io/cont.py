@@ -139,6 +139,8 @@ from dhspec.cont import (
     cont_name_from_id,
     DATA_DATASET_NAME,
     INDEX_DATASET_NAME,
+    create_empty_index_array,
+    create_channel_info,
 )
 import numpy as np
 
@@ -330,7 +332,6 @@ def validate_cont_dtype(file: h5py.File) -> None:
         )
 
 
-@ensure_h5py_file
 def validate_cont_group(cont_group: h5py.Group) -> None:
     """Validate a CONT group in a DAQ-HDF5 file.
 
