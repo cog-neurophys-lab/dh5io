@@ -19,3 +19,12 @@ A Python package for handling [DAQ-HDF5](https://github.com/cog-neurophys-lab/DA
 Checkout Neo's developer guide: https://neo.readthedocs.io/en/stable/io_developers_guide.html
 
 This project is still very much work-in-progress and contains nothing usable yet.
+
+
+## Developer setup
+
+- Use [uv](https://docs.astral.sh/uv)
+- Setup pre-push hook for running pytest 
+  ```bash
+  git config --local core.hooksPath .githooks
+  ```
