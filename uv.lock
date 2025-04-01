@@ -267,15 +267,19 @@ neo = [
     { name = "neo" },
 ]
 test = [
+    { name = "neo" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "zarr" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "dh-format", extras = ["all"], marker = "extra == 'dev'" },
     { name = "dh-format", extras = ["dhzio"], marker = "extra == 'all'" },
+    { name = "dh-format", extras = ["dhzio"], marker = "extra == 'test'" },
     { name = "dh-format", extras = ["neo"], marker = "extra == 'all'" },
+    { name = "dh-format", extras = ["neo"], marker = "extra == 'test'" },
     { name = "dh-format", extras = ["test"], marker = "extra == 'all'" },
     { name = "h5py" },
     { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.29.5" },

@@ -1,5 +1,5 @@
 import pytest
-import dh5io.dh5neo as dh5neo
+import dh5neo as dh5neo
 import pathlib
 
 filename = pathlib.Path(__file__).parent / "test.dh5"

@@ -1,10 +1,10 @@
 import pathlib
 
 from neo.io.basefromrawio import BaseFromRaw
-from dh5neo.dh5rawio import DH5RawIO
+import dh5neo.dh5rawio
 
 
-class DH5IO(DH5RawIO, BaseFromRaw):
+class DH5IO(dh5neo.dh5rawio.DH5RawIO, BaseFromRaw):
     """
     Class for reading DAQ-HDF5 (*.dh5) files from the Kreiter lab.
     """
@@ -13,5 +13,5 @@ class DH5IO(DH5RawIO, BaseFromRaw):
     mode = "file"
 
     def __init__(self, filename: str | pathlib.Path):
-        DH5RawIO.__init__(self, filename=filename)
+        dh5neo.DH5RawIO.__init__(self, filename=filename)
         BaseFromRaw.__init__(self, filename)
