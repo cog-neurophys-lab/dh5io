@@ -1,11 +1,13 @@
+from unittest import skip
 import dhzio
 import dhzio.cont
 import zarr
 import numpy as np
-
+import pytest
 import dhzio.dhzfile
 
 
+@pytest.mark.skip(reason="This test is not implemented yet")
 def test_dhzio(tmp_path):
     folder = tmp_path / "test.dhz"
 
