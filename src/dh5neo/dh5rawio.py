@@ -1,7 +1,6 @@
 import typing
 import pathlib
 import numpy
-import dh5io.trialmap as trialmap
 from dh5io.dh5file import DH5File
 import h5py
 from dataclasses import dataclass
