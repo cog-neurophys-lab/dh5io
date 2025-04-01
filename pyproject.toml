@@ -29,4 +29,4 @@ dev = [
 dhzio = ["zarr>=3.0.6"]
 all = ["dh-format[test]", "dh-format[neo]", "dh-format[dhzio]"]
 neo = ["neo"]
-test = ["pytest", "pytest-cov"]
+test = ["pytest", "pytest-cov", "dh-format[neo]", "dh-format[dhzio]"]
