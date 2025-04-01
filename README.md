@@ -1,8 +1,15 @@
-# DH5IO
-A Python package for handling [DAQ-HDF5](https://github.com/cog-neurophys-lab/DAQ-HDF5)
-(`*.dh5`) files.
+# Python Tools for the DAQ-HDF5 format
+
+A Python package for handling
+[DAQ-HDF5](https://github.com/cog-neurophys-lab/DAQ-HDF5)(`*.dh5`) files. 
 
 [![Python Tests](https://github.com/cog-neurophys-lab/dh5io/actions/workflows/python-tests.yml/badge.svg)](https://github.com/cog-neurophys-lab/dh5io/actions/workflows/python-tests.yml)
+
+- **`dhspec`** contains the specification of the DAQ-HDF5 file format as Python code.
+- **`dh5io`** contains code for reading, writing and validating HDF5 files containing data
+  according to the DAQ-HDF5 specfication.
+- **`dh5neo` (WIP)** contains code for reading DAQ-HDF5 data into
+  [Neo](https://github.com/NeuralEnsemble/python-neo) objects (e.g. for use with [Elephant](https://elephant.readthedocs.io/en/latest/index.html), [SpikeInterface](https://spikeinterface.readthedocs.io) and [ephyviewer](https://ephyviewer.readthedocs.io/)
 
 **Design goals**
 
