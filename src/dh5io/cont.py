@@ -226,7 +226,6 @@ def create_empty_cont_group_in_file(
 def create_cont_group_from_data_in_file(
     file: h5py.File,
     cont_group_id: int,  # group name will be CONT_{cont_group_id}
-    cont_group_name: str,  # attribute of the CONT group
     data: np.ndarray,
     index: np.ndarray,
     sample_period_ns: np.int32,

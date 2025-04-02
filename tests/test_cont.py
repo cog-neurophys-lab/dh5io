@@ -58,12 +58,12 @@ def test_create_cont_group_with_data(tmp_path):
         cont_group = cont.create_cont_group_from_data_in_file(
             dh5file.file,
             cont_group_id,
-            cont_group_name=cont_group_name,
             sample_period_ns=sample_period_ns,
             calibration=calibration,
             data=data,
             index=index,
             signal_type=cont.ContSignalType.LFP,
+            name=cont_group_name,
         )
 
         assert cont_group.attrs["SamplePeriod"] == sample_period_ns
