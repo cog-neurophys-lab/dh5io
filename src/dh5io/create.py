@@ -11,11 +11,11 @@ import numpy
 logger = logging.getLogger(__name__)
 
 
-def create_dh_file(filename: str | pathlib.Path) -> DH5File:
-    if os.path.exists(filename):
+def create_dh_file(filename: str | pathlib.Path, overwrite=False) -> DH5File:
+    if not overwrite and os.path.exists(filename):
         raise FileExistsError(f"File {filename} already exists.")
 
-    h5file = h5py.File(filename, mode="w-")
+    h5file = h5py.File(filename, mode="w")
     h5file.attrs["FILEVERSION"] = 2
 
     tid = h5t.py_create(numpy.dtype([("time", numpy.int64), ("offset", numpy.int64)]))
