@@ -11,12 +11,22 @@ import numpy
 logger = logging.getLogger(__name__)
 
 
-def create_dh_file(filename: str | pathlib.Path, overwrite=False) -> DH5File:
+def create_dh_file(
+    filename: str | pathlib.Path,
+    overwrite=False,
+    file_version: int = 2,
+    boards: list[str] = [],
+) -> DH5File:
     if not overwrite and os.path.exists(filename):
         raise FileExistsError(f"File {filename} already exists.")
 
-    h5file = h5py.File(filename, mode="w")
-    h5file.attrs["FILEVERSION"] = 2
+    dh5File = DH5File(filename, mode="w")
+    h5file = dh5File.file
+    h5file.attrs["FILEVERSION"] = file_version
+
+    h5file.attrs["BOARDS"] = numpy.array(
+        boards, dtype=h5py.string_dtype(encoding="utf-8")
+    )
 
     tid = h5t.py_create(numpy.dtype([("time", numpy.int64), ("offset", numpy.int64)]))
     tid.commit(h5file.id, b"CONT_INDEX_ITEM")
@@ -25,4 +35,4 @@ def create_dh_file(filename: str | pathlib.Path, overwrite=False) -> DH5File:
 
     validate_dh5_file(h5file)
 
-    return h5file
+    return dh5File

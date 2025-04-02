@@ -43,8 +43,11 @@ import h5py
 import dh5io.trialmap as trialmap
 import dh5io.event_triggers as event_triggers
 import dh5io.cont as cont
+from dhspec.dh5file import BOARDS_ATTRIBUTE_NAME, FILEVERSION_ATTRIBUTE_NAME
 
-from dh5io.errors import DH5Error, DH5Warning
+
+def dh5file_from_h5file(file: h5py.File):
+    return DH5File(file.filename, mode=file.mode)
 
 
 class DH5File:
@@ -79,7 +82,11 @@ class DH5File:
 
     @property
     def version(self) -> int | None:
-        return self.file.attrs.get("FILEVERSION")
+        return self.file.attrs.get(FILEVERSION_ATTRIBUTE_NAME)
+
+    @property
+    def boards(self) -> list[str] | None:
+        return self.file.attrs.get(BOARDS_ATTRIBUTE_NAME)
 
     # cont groups
     def get_cont_groups(self) -> list[h5py.Group]:
