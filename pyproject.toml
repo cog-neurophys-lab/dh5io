@@ -18,6 +18,9 @@ pythonpath = ["."]
 [tool.black]
 line-length = 96
 
+[project.scripts]
+dh5tree = "dh5cli.dh5tree:main"
+
 [project.optional-dependencies]
 dev = [
     "ipykernel>=6.29.5",
