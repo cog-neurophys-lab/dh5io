@@ -63,7 +63,8 @@ docs = [
     "linkify-it-py>=2.0.0",
 ]
 dhzio = ["zarr>=3.0.6"]
-all = ["dh5io[test]", "dh5io[neo]", "dh5io[dhzio]", "dh5io[browser]"]
+all = ["dh5io[test]", "dh5io[neo]", "dh5io[dhzio]", "dh5io[browser]", "dh5io[mne]"]
 neo = ["neo"]
+mne = ["mne"]
 browser = ["ephyviewer", "PySide6", "dh5io[neo]"]
 test = ["pytest", "pytest-cov", "dh5io[neo]", "dh5io[dhzio]"]
