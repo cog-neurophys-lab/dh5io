@@ -20,6 +20,7 @@ from dh5io.dh5mne import (
     _batch_ns_to_sample_time,
     _build_region_lookup,
     _ns_to_sample_time,
+    annotations_from_dh5,
     epochs_from_dh5,
     read_raw_dh5,
     read_raw_dh5_per_cont,
@@ -238,6 +239,42 @@ class TestAnnotations:
         events, event_id = mne.events_from_annotations(raw, regexp="trial/.*")
         assert events.shape[1] == 3
         assert len(event_id) > 0
+
+
+# ---------------------------------------------------------------------------
+# annotations_from_dh5 (public function)
+# ---------------------------------------------------------------------------
+class TestAnnotationsFromDH5:
+    """annotations_from_dh5 should return the same annotations as MneRawDH5."""
+
+    @pytest.fixture()
+    def region_lookup_and_params(self) -> tuple[_RegionLookup, int, float]:
+        raw = read_raw_dh5(TEST_FILE, cont_ids=[1])
+        return raw._region_lookup, raw._sample_period_ns, raw._sfreq
+
+    def test_returns_mne_annotations(
+        self, region_lookup_and_params: tuple[_RegionLookup, int, float]
+    ) -> None:
+        rl, period_ns, sfreq = region_lookup_and_params
+        annot = annotations_from_dh5(TEST_FILE, rl, period_ns, sfreq)
+        assert isinstance(annot, mne.Annotations)
+
+    def test_matches_raw_annotations(
+        self, region_lookup_and_params: tuple[_RegionLookup, int, float]
+    ) -> None:
+        """annotations_from_dh5 should produce the same set as MneRawDH5."""
+        rl, period_ns, sfreq = region_lookup_and_params
+        raw = read_raw_dh5(TEST_FILE, cont_ids=[1])
+        standalone = annotations_from_dh5(TEST_FILE, rl, period_ns, sfreq)
+        assert len(standalone) == len(raw.annotations)
+
+    def test_trial_annotations_present(
+        self, region_lookup_and_params: tuple[_RegionLookup, int, float]
+    ) -> None:
+        rl, period_ns, sfreq = region_lookup_and_params
+        annot = annotations_from_dh5(TEST_FILE, rl, period_ns, sfreq)
+        trials = [a for a in annot if str(a["description"]).startswith("trial/")]
+        assert len(trials) > 0
 
 
 # ---------------------------------------------------------------------------

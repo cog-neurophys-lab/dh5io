@@ -30,6 +30,7 @@ __all__: list[str] = [
     "read_raw_dh5",
     "read_raw_dh5_per_cont",
     "epochs_from_dh5",
+    "annotations_from_dh5",
     "MneRawDH5",
 ]
 
@@ -309,6 +310,88 @@ def epochs_from_dh5(
     )
 
 
+def annotations_from_dh5(
+    fname: str | pathlib.Path,
+    region_lookup: _RegionLookup,
+    sample_period_ns: int,
+    sfreq: float,
+) -> mne.Annotations:
+    """Build MNE Annotations from a DH5 file's TRIALMAP and EV02 events.
+
+    This is the public counterpart of the internal ``_add_dh5_annotations``
+    method.  It can be called independently of ``MneRawDH5`` whenever you
+    need the annotation objects without constructing a full Raw object.
+
+    Parameters
+    ----------
+    fname : str | pathlib.Path
+        Path to the DH5 file.
+    region_lookup : _RegionLookup
+        Precomputed region-lookup for the CONT block whose time axis should
+        be used for the annotations (build with :func:`_build_region_lookup`).
+    sample_period_ns : int
+        Sample period in nanoseconds (= ``round(1e9 / sfreq)``).
+    sfreq : float
+        Sampling frequency in Hz.
+
+    Returns
+    -------
+    annotations : mne.Annotations
+        MNE Annotations with trial, event, and region-boundary entries.
+        An empty ``mne.Annotations`` object is returned when the file
+        contains no mappable timestamps.
+    """
+    rl = region_lookup
+
+    onsets: list[float] = []
+    durations: list[float] = []
+    descriptions: list[str] = []
+
+    with DH5File(fname) as dh5:
+        # Region boundaries as BAD annotations
+        for i in range(len(rl.start_ns) - 1):
+            if rl.start_ns[i + 1] > rl.end_ns[i]:
+                boundary_sample: float = float(rl.offset[i + 1]) / sfreq
+                onsets.append(boundary_sample)
+                durations.append(0.0)
+                descriptions.append("BAD_region_boundary")
+
+        # TRIALMAP
+        trialmap = dh5.get_trialmap()
+        if trialmap is not None and len(trialmap) > 0:
+            start_times = _batch_ns_to_sample_time(
+                trialmap.start_time_nanoseconds, rl, sample_period_ns, sfreq
+            )
+            end_times = _batch_ns_to_sample_time(
+                trialmap.end_time_nanoseconds, rl, sample_period_ns, sfreq
+            )
+            for i in range(len(trialmap)):
+                if np.isnan(start_times[i]) or np.isnan(end_times[i]):
+                    continue
+                dur: float = end_times[i] - start_times[i]
+                if dur > 0:
+                    onsets.append(start_times[i])
+                    durations.append(dur)
+                    stim_no: int = int(trialmap.trial_type_numbers[i])
+                    outcome: int = int(trialmap.trial_outcomes_integer[i])
+                    descriptions.append(f"trial/StimNo={stim_no}/Outcome={outcome}")
+
+        # EV02 events
+        events_arr = dh5.get_events_array()
+        if events_arr is not None and len(events_arr) > 0:
+            event_times = _batch_ns_to_sample_time(
+                events_arr["time"], rl, sample_period_ns, sfreq
+            )
+            for j in range(len(events_arr)):
+                if np.isnan(event_times[j]):
+                    continue
+                onsets.append(event_times[j])
+                durations.append(0.0)
+                descriptions.append(f"event/{events_arr['event'][j]}")
+
+    return mne.Annotations(onset=onsets, duration=durations, description=descriptions)
+
+
 # ---------------------------------------------------------------------------
 # RawDH5 class
 # ---------------------------------------------------------------------------
@@ -431,9 +514,14 @@ class MneRawDH5(BaseRaw):
         self._sample_period_ns: int = sample_period_ns
         self._sfreq: float = sfreq
 
-        # Add annotations
-        self._add_dh5_annotations(dh5)
         del dh5
+
+        # Add annotations
+        annot = annotations_from_dh5(
+            fname, self._region_lookup, self._sample_period_ns, self._sfreq
+        )
+        if len(annot) > 0:
+            self.set_annotations(annot, emit_warning=False)
 
     @staticmethod
     def _select_conts(
@@ -478,72 +566,6 @@ class MneRawDH5(BaseRaw):
         if not selected:
             raise ValueError(f"No CONT groups selected from {fname}")
         return selected
-
-    def _add_dh5_annotations(self, dh5: DH5File) -> None:
-        """Add TRIALMAP and EV02 as MNE Annotations."""
-        rl = self._region_lookup
-
-        onsets: list[float] = []
-        durations: list[float] = []
-        descriptions: list[str] = []
-
-        # Region boundaries as BAD annotations
-        for i in range(len(rl.start_ns) - 1):
-            if rl.start_ns[i + 1] > rl.end_ns[i]:
-                boundary_sample: float = float(rl.offset[i + 1]) / self._sfreq
-                onsets.append(boundary_sample)
-                durations.append(0.0)
-                descriptions.append("BAD_region_boundary")
-
-        # TRIALMAP
-        trialmap = dh5.get_trialmap()
-        if trialmap is not None and len(trialmap) > 0:
-            start_times = _batch_ns_to_sample_time(
-                trialmap.start_time_nanoseconds,
-                rl,
-                self._sample_period_ns,
-                self._sfreq,
-            )
-            end_times = _batch_ns_to_sample_time(
-                trialmap.end_time_nanoseconds,
-                rl,
-                self._sample_period_ns,
-                self._sfreq,
-            )
-            for i in range(len(trialmap)):
-                if np.isnan(start_times[i]) or np.isnan(end_times[i]):
-                    continue
-                dur: float = end_times[i] - start_times[i]
-                if dur > 0:
-                    onsets.append(start_times[i])
-                    durations.append(dur)
-                    stim_no: int = int(trialmap.trial_type_numbers[i])
-                    outcome: int = int(trialmap.trial_outcomes_integer[i])
-                    descriptions.append(f"trial/StimNo={stim_no}/Outcome={outcome}")
-
-        # EV02 events
-        events_arr = dh5.get_events_array()
-        if events_arr is not None and len(events_arr) > 0:
-            event_times = _batch_ns_to_sample_time(
-                events_arr["time"],
-                rl,
-                self._sample_period_ns,
-                self._sfreq,
-            )
-            for j in range(len(events_arr)):
-                if np.isnan(event_times[j]):
-                    continue
-                onsets.append(event_times[j])
-                durations.append(0.0)
-                descriptions.append(f"event/{events_arr['event'][j]}")
-
-        if onsets:
-            annot = mne.Annotations(
-                onset=onsets,
-                duration=durations,
-                description=descriptions,
-            )
-            self.set_annotations(annot, emit_warning=False)
 
     def _read_segment_file(
         self,
