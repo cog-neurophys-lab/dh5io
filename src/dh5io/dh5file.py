@@ -81,6 +81,9 @@ class DH5File:
         if self._file:
             self._file.close()
 
+    def __repr__(self) -> str:
+        return f"DH5File({self._file.filename!r}, mode={self._file.mode!r})"
+
     def __str__(self):
         cont_group_names = self.get_cont_group_names()
         cont_groups_str = ""
