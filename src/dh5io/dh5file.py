@@ -66,7 +66,7 @@ class DH5File:
     def __init__(self, filename: str | pathlib.Path, mode="r"):
         if not pathlib.Path(filename).exists():
             raise FileNotFoundError(
-                f"File {filename} does not exist. To create a new valid DH5 file use `dh5io.create.create_dh5_file`"
+                f"File {filename} does not exist. To create a new valid DH5 file use `dh5io.create_dh5_file`"
             )
         self._file = h5py.File(filename, mode)
 
