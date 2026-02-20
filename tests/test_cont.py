@@ -1,9 +1,8 @@
-import pytest
-import h5py
-import dh5io.cont as cont
 import numpy as np
-from dh5io.create import create_dh_file
+
 import dh5io
+import dh5io.cont as cont
+from dh5io.create import create_dh_file
 
 
 def test_create_empty_cont_group(tmp_path):

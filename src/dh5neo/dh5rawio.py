@@ -58,6 +58,9 @@ class DH5RawIO(BaseRawIO):
     header: RawIOHeader | None
 
     def __init__(self, filename: str | pathlib.Path):
+        # raise exception if file does not exist
+        if not pathlib.Path(filename).exists():
+            raise FileNotFoundError(f"File {filename} does not exist")
         BaseRawIO.__init__(self)
         self.filename = filename
         self._file = DH5File(filename)

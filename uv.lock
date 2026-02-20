@@ -474,6 +474,7 @@ neo = [
     { name = "neo" },
 ]
 test = [
+    { name = "mne" },
     { name = "neo" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -492,6 +493,7 @@ requires-dist = [
     { name = "dh5io", extras = ["dhzio"], marker = "extra == 'all'" },
     { name = "dh5io", extras = ["dhzio"], marker = "extra == 'test'" },
     { name = "dh5io", extras = ["mne"], marker = "extra == 'all'" },
+    { name = "dh5io", extras = ["mne"], marker = "extra == 'test'" },
     { name = "dh5io", extras = ["neo"], marker = "extra == 'all'" },
     { name = "dh5io", extras = ["neo"], marker = "extra == 'browser'" },
     { name = "dh5io", extras = ["neo"], marker = "extra == 'test'" },
