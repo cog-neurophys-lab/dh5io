@@ -80,7 +80,7 @@ import pathlib
 import h5py
 import h5py.h5t
 from dh5io.ensure_h5py_file import ensure_h5py_file
-from dh5io.errors import DH5Error, DH5Warning
+from dh5io.errors import DH5Error, DH5Warning, DH5OperationIndexWarning
 from dhspec.operations import (
     OPERATIONS_DATE_NAME,
     OPERATIONS_GROUP_NAME,
@@ -155,8 +155,9 @@ def operation_index_from_name(operation_name: str) -> int:
     strId = operation_name.split("_")[0]
     if len(strId) != 3:
         warnings.warn(
-            message=f"Operation index {strId} of operation {operation_name} is not a three digit number",
-            category=DH5Warning,
+            DH5OperationIndexWarning(
+                f"Operation index {strId} of operation {operation_name} is not a three digit number"
+            )
         )
     try:
         id = int(strId)
@@ -183,4 +184,4 @@ def validate_operations(file: h5py.File):
             )
 
         if id != operation_index_from_name(op):
-            warnings.warn(DH5Warning("Operation indices are not numbered sequentially"))
+            warnings.warn(DH5OperationIndexWarning("Operation indices are not numbered sequentially"))

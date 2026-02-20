@@ -132,7 +132,13 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
-from dh5io.errors import DH5Error, DH5Warning
+from dh5io.errors import (
+    DH5Error,
+    DH5Warning,
+    DH5CalibrationMissingWarning,
+    DH5ChannelsMissingWarning,
+    DH5DataTypeConversionWarning,
+)
 from dhspec.cont import (
     CONT_DTYPE_NAME,
     CONT_PREFIX,
@@ -269,7 +275,10 @@ class Cont:
         calib = self.calibration
         if calib is None:
             warnings.warn(
-                DH5Warning(f"Calibration attribute is missing from {self._group.name}")
+                DH5CalibrationMissingWarning(
+                    f"Calibration attribute is missing from {self._group.name}",
+                    cont_id=self.id,
+                )
             )
             return self.data.astype(np.float64)
         return self.data * calib
@@ -383,7 +392,9 @@ def create_cont_group_from_data_in_file(
     # make sure data in integer type
     if not data.dtype == np.int16:
         warnings.warn(
-            f"Data was converted from {data.dtype} to numpy.int16", category=DH5Warning
+            DH5DataTypeConversionWarning(
+                f"Data was converted from {data.dtype} to numpy.int16"
+            )
         )
         data = data.astype(np.int16)
     cont_group["DATA"][:] = data
@@ -408,7 +419,10 @@ def get_calibrated_cont_data_by_id(file: h5py.File, cont_id: int) -> np.ndarray:
     calibration = get_cont_group_by_id_from_file(file, cont_id).attrs.get("Calibration")
     if calibration is None:
         warnings.warn(
-            DH5Warning(f"Calibration attribute is missing from CONT{cont_id}")
+            DH5CalibrationMissingWarning(
+                f"Calibration attribute is missing from CONT{cont_id}",
+                cont_id=cont_id,
+            )
         )
         return get_cont_data_by_id_from_file(file, cont_id)
     return get_cont_data_by_id_from_file(file, cont_id) * calibration
@@ -465,9 +479,12 @@ def validate_cont_group(cont_group: h5py.Group) -> None:
 
     calibration = cont_group.attrs.get("Calibration")
     if calibration is None:
+        cont_id = cont_id_from_name(cont_group.name)
         warnings.warn(
-            message=f"Calibration attribute is missing from CONT group {cont_group.name}",
-            category=DH5Warning,
+            DH5CalibrationMissingWarning(
+                f"Calibration attribute is missing from CONT group {cont_group.name}",
+                cont_id=cont_id,
+            )
         )
     else:
         if not isinstance(calibration, np.ndarray):
@@ -533,7 +550,10 @@ def validate_cont_group(cont_group: h5py.Group) -> None:
             )
     else:
         # should be an error according to specification, but is often missing
+        cont_id = cont_id_from_name(cont_group.name)
         warnings.warn(
-            message=f"Channels attribute is missing from CONT group {cont_group.name}",
-            category=DH5Warning,
+            DH5ChannelsMissingWarning(
+                f"Channels attribute is missing from CONT group {cont_group.name}",
+                cont_id=cont_id,
+            )
         )
