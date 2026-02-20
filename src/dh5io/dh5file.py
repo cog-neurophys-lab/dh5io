@@ -130,7 +130,9 @@ class DH5File:
         else:
             cont_flags.append("discontinuous")
         if n_cont > 1:
-            cont_flags.append("simultaneous start" if simultaneous else "non-simultaneous start")
+            cont_flags.append(
+                "simultaneous start" if simultaneous else "non-simultaneous start"
+            )
         cont_flags_str = f"  [{', '.join(cont_flags)}]" if cont_flags else ""
 
         cont_groups_lines = []
@@ -145,9 +147,17 @@ class DH5File:
                 info = f"{c.n_channels}ch, {c.n_samples} samples"
                 if c.n_regions > 1:
                     info += f", {c.n_regions} regions"
-                label = f"CONT{c.id}: {c.name} — {info}" if c.name else f"CONT{c.id} — {info}"
+                label = (
+                    f"CONT{c.id}: {c.name} — {info}"
+                    if c.name
+                    else f"CONT{c.id} — {info}"
+                )
                 cont_groups_lines.append(f"        │   {inner}   {nbranch}─── {label}")
-        cont_groups_str = "\n".join(cont_groups_lines) if cont_groups_lines else "        │   └── (none)"
+        cont_groups_str = (
+            "\n".join(cont_groups_lines)
+            if cont_groups_lines
+            else "        │   └── (none)"
+        )
 
         spike_group_names = self.get_spike_group_names()
         spike_groups_str = ""
@@ -222,10 +232,13 @@ class DH5File:
             If any of the requested IDs are not present in the file.
         """
         from dh5io.errors import DH5Error
+
         all_conts = {c.id: c for c in self.get_cont_groups()}
         missing = set(ids) - all_conts.keys()
         if missing:
-            raise DH5Error(f"CONT group IDs not found in {self._file.filename}: {missing}")
+            raise DH5Error(
+                f"CONT group IDs not found in {self._file.filename}: {missing}"
+            )
         return [all_conts[i] for i in ids]
 
     def get_cont_group_names(self) -> list[str]:
@@ -248,6 +261,7 @@ class DH5File:
         return (nSamples, nChannels)
 
     # spike groups
+    # TODO:
     def get_spike_groups(self) -> list[h5py.Group]:
         return [self._file[name] for name in self.get_spike_group_names()]
 

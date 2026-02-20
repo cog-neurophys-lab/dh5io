@@ -10,7 +10,6 @@ from __future__ import annotations
 import pathlib
 import warnings
 from dataclasses import dataclass
-from typing import Literal
 
 try:
     import psutil as _psutil
@@ -24,11 +23,13 @@ import numpy.typing as npt
 from mne._fiff.utils import _mult_cal_one
 from mne.io.base import BaseRaw
 
+from dh5io.cont import Cont
 from dh5io.dh5file import DH5File
-from dh5io.errors import DH5Error, DH5Warning, DH5DiscontinuousRegionsWarning
+from dh5io.errors import DH5Error, DH5Warning, DH5DiscontinuousRegionsWarning, DH5SampleCountMismatchWarning, DH5SampleRateMismatchWarning
 
 __all__: list[str] = [
     "read_raw_dh5",
+    "read_raw_dh5_per_sfreq",
     "read_raw_dh5_per_cont",
     "epochs_from_dh5",
     "annotations_from_dh5",
@@ -39,16 +40,6 @@ __all__: list[str] = [
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
-@dataclass
-class _ContInfo:
-    id: int
-    n_channels: int
-    n_samples: int
-    sfreq: float
-    calibration: npt.NDArray[np.float64] | None
-    name: str
-
-
 @dataclass
 class _RegionLookup:
     """Precomputed arrays for fast timestamp→sample mapping.
@@ -206,9 +197,10 @@ def _batch_ns_to_sample_time(
 # ---------------------------------------------------------------------------
 def read_raw_dh5(
     fname: str | pathlib.Path,
-    cont_ids: list[int] | Literal["all"] | None = None,
+    cont_ids: list[int] | None = None,
     preload: bool = False,
     verbose: bool | str | int | None = None,
+    require_matching_sampling_rate: bool = False,
 ) -> MneRawDH5:
     """Read a DH5 file as an MNE Raw object.
 
@@ -216,21 +208,66 @@ def read_raw_dh5(
     ----------
     fname : str | Path
         Path to the .dh5 file.
-    cont_ids : list of int | "all" | None
-        Which CONT groups to include:
-        - None (default): all CONT groups whose sampling rate matches the first CONT group.
-        - list of int: explicitly selected CONT group IDs (error if sampling rates differ).
-        - "all": all CONT groups (error if sampling rates differ).
+    cont_ids : list of int | None
+        Which CONT groups to include. ``None`` (default) selects all CONT groups.
     preload : bool
         If True, load all data into memory at init. If False, data is read lazily.
+    verbose : bool | str | int | None
+        MNE verbosity level.
+    require_matching_sampling_rate : bool
+        If True, raise an error when the selected CONT groups have different sampling
+        rates. If False (default), CONT groups whose rate differs from the first are
+        silently skipped with a ``DH5SampleRateMismatchWarning``.
+
+    Returns
+    -------
+    raw : MneRawDH5
+    """
+    return MneRawDH5(
+        fname,
+        cont_ids=cont_ids,
+        preload=preload,
+        verbose=verbose,
+        require_matching_sampling_rate=require_matching_sampling_rate,
+    )
+
+
+def read_raw_dh5_per_sfreq(
+    fname: str | pathlib.Path,
+    preload: bool = False,
+    verbose: bool | str | int | None = None,
+) -> dict[float, MneRawDH5]:
+    """Read a DH5 file, returning one Raw object per unique sampling rate.
+
+    All CONT groups that share a sampling rate are combined into a single Raw
+    object (multi-channel).  This is the natural way to read a DH5 file when
+    different CONT groups were recorded at different rates.
+
+    Parameters
+    ----------
+    fname : str | Path
+        Path to the .dh5 file.
+    preload : bool
+        If True, load all data into memory.
     verbose : bool | str | int | None
         MNE verbosity level.
 
     Returns
     -------
-    raw : RawDH5
+    raws : dict[float, MneRawDH5]
+        Mapping from sampling rate (Hz) to Raw object.
     """
-    return MneRawDH5(fname, cont_ids=cont_ids, preload=preload, verbose=verbose)
+    fname = pathlib.Path(fname)
+    with DH5File(fname) as dh5:
+        groups_by_sfreq = {
+            sfreq: [c.id for c in conts]
+            for sfreq, conts in dh5.get_cont_groups_by_sfreq().items()
+        }
+    return {
+        sfreq: MneRawDH5(fname, cont_ids=ids, preload=preload, verbose=verbose,
+                         require_matching_sampling_rate=True)
+        for sfreq, ids in groups_by_sfreq.items()
+    }
 
 
 def read_raw_dh5_per_cont(
@@ -251,13 +288,12 @@ def read_raw_dh5_per_cont(
 
     Returns
     -------
-    raws : dict[int, RawDH5]
+    raws : dict[int, MneRawDH5]
         Mapping from CONT group ID to Raw object.
     """
     fname = pathlib.Path(fname)
-    dh5 = DH5File(fname)
-    cont_ids: list[int] = dh5.get_cont_group_ids()
-    del dh5
+    with DH5File(fname) as dh5:
+        cont_ids: list[int] = dh5.get_cont_group_ids()
     return {
         cid: MneRawDH5(fname, cont_ids=[cid], preload=preload, verbose=verbose)
         for cid in cont_ids
@@ -484,54 +520,66 @@ class MneRawDH5(BaseRaw):
     ----------
     fname : str | Path
         Path to the .dh5 file.
-    cont_ids : list of int | "all" | None
-        Which CONT groups to include. See read_raw_dh5 for details.
+    cont_ids : list of int | None
+        Which CONT groups to include. ``None`` (default) selects all CONT groups.
     preload : bool
         If True, load all data into memory.
     verbose : bool | str | int | None
         MNE verbosity level.
+    require_matching_sampling_rate : bool
+        If True, raise an error when the selected CONT groups have different sampling
+        rates. If False (default), mismatched groups are skipped with a warning.
     """
 
     def __init__(
         self,
         fname: str | pathlib.Path,
-        cont_ids: list[int] | Literal["all"] | None = None,
+        cont_ids: list[int] | None = None,
         preload: bool = False,
         verbose: bool | str | int | None = None,
+        require_matching_sampling_rate: bool = False,
     ) -> None:
         fname = pathlib.Path(fname)
 
         # Collect metadata using dh5io
         dh5 = DH5File(fname)
-        all_conts: list[_ContInfo] = []
-        for cont in dh5.get_cont_groups():
-            sfreq = 1e9 / cont.sample_period
-            calib = cont.calibration
-            if calib is not None:
-                calib = np.array(calib, dtype=np.float64)
-            name: str = cont.name if cont.name else f"CONT{cont.id}"
-            all_conts.append(
-                _ContInfo(
-                    id=cont.id,
-                    n_channels=cont.n_channels,
-                    n_samples=cont.n_samples,
-                    sfreq=sfreq,
-                    calibration=calib,
-                    name=name,
+        if not dh5.get_cont_group_ids():
+            raise ValueError(f"No CONT groups found in {fname}")
+
+        selected: list[Cont] = (
+            dh5.get_cont_groups_by_ids(cont_ids) if cont_ids is not None
+            else dh5.get_cont_groups()
+        )
+
+        # Validate / handle differing sampling rates
+        target_sfreq: float = 1e9 / selected[0].sample_period
+        mismatched = [c for c in selected if 1e9 / c.sample_period != target_sfreq]
+        if mismatched:
+            names = [f"CONT{c.id} ({1e9 / c.sample_period:.1f} Hz)" for c in mismatched]
+            if require_matching_sampling_rate:
+                raise ValueError(
+                    f"CONT groups have different sampling rates: "
+                    f"{', '.join(names)}. Target rate: {target_sfreq:.1f} Hz."
+                )
+            selected = [c for c in selected if 1e9 / c.sample_period == target_sfreq]
+            warnings.warn(
+                DH5SampleRateMismatchWarning(
+                    f"Skipping CONT groups with non-matching sampling rate: "
+                    f"{', '.join(names)}. Target rate: {target_sfreq:.1f} Hz."
                 )
             )
 
-        # Select CONT groups
-        selected = self._select_conts(all_conts, cont_ids, fname)
-        sfreq = selected[0].sfreq
+        sfreq = target_sfreq
 
         # Handle differing sample counts
         n_samples_set = set(c.n_samples for c in selected)
         if len(n_samples_set) > 1:
             total_samples: int = min(n_samples_set)
             warnings.warn(
-                f"CONT groups have different sample counts: {n_samples_set}. "
-                f"Using minimum: {total_samples}."
+                DH5SampleCountMismatchWarning(
+                    f"CONT groups have different sample counts: {n_samples_set}. "
+                    f"Using minimum: {total_samples}."
+                )
             )
         else:
             total_samples = selected[0].n_samples
@@ -540,11 +588,11 @@ class MneRawDH5(BaseRaw):
         channel_map: list[tuple[int, int, float, str]] = []
         ch_names: list[str] = []
         for c in selected:
+            calib = c.calibration
+            ch_label: str = c.name if c.name else f"CONT{c.id}"
             for col in range(c.n_channels):
-                cal: float = (
-                    float(c.calibration[col]) if c.calibration is not None else 1.0
-                )
-                ch_name: str = f"{c.name}/{col}"
+                cal: float = float(calib[col]) if calib is not None else 1.0
+                ch_name: str = f"{ch_label}/{col}"
                 channel_map.append((c.id, col, cal, ch_name))
                 ch_names.append(ch_name)
 
@@ -618,50 +666,6 @@ class MneRawDH5(BaseRaw):
             )
         if len(annot) > 0:
             self.set_annotations(annot, emit_warning=False)
-
-    @staticmethod
-    def _select_conts(
-        all_conts: list[_ContInfo],
-        cont_ids: list[int] | Literal["all"] | None,
-        fname: pathlib.Path,
-    ) -> list[_ContInfo]:
-        """Select CONT groups based on cont_ids parameter."""
-        if not all_conts:
-            raise ValueError(f"No CONT groups found in {fname}")
-
-        if cont_ids is None:
-            target_sfreq: float = all_conts[0].sfreq
-            selected = [c for c in all_conts if c.sfreq == target_sfreq]
-            skipped = [c for c in all_conts if c.sfreq != target_sfreq]
-            if skipped:
-                names = [f"CONT{c.id} ({c.sfreq:.1f} Hz)" for c in skipped]
-                warnings.warn(
-                    f"Skipping CONT groups with non-matching sampling rate: "
-                    f"{', '.join(names)}. Target rate: {target_sfreq:.1f} Hz."
-                )
-        elif cont_ids == "all":
-            selected = all_conts
-            sfreqs = set(c.sfreq for c in selected)
-            if len(sfreqs) > 1:
-                raise ValueError(
-                    f"cont_ids='all' but CONT groups have different sampling rates: "
-                    f"{sfreqs}. Use cont_ids=None to auto-select matching rates."
-                )
-        else:
-            id_set = set(cont_ids)
-            selected = [c for c in all_conts if c.id in id_set]
-            missing = id_set - {c.id for c in selected}
-            if missing:
-                raise ValueError(f"CONT group IDs not found: {missing}")
-            sfreqs = set(c.sfreq for c in selected)
-            if len(sfreqs) > 1:
-                raise ValueError(
-                    f"Selected CONT groups have different sampling rates: {sfreqs}"
-                )
-
-        if not selected:
-            raise ValueError(f"No CONT groups selected from {fname}")
-        return selected
 
     def _read_segment_file(
         self,

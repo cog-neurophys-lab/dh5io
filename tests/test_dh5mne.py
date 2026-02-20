@@ -14,6 +14,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from dh5io import DH5Error
 from dh5io.dh5mne import (
     MneRawDH5,
     _batch_ns_to_sample_time,
@@ -23,6 +24,7 @@ from dh5io.dh5mne import (
     epochs_from_dh5,
     read_raw_dh5,
     read_raw_dh5_per_cont,
+    read_raw_dh5_per_sfreq,
 )
 
 TEST_FILE: pathlib.Path = pathlib.Path(__file__).parent / "test.dh5"
@@ -63,12 +65,8 @@ class TestReadRawDH5:
         assert raw.info["nchan"] == 2
         assert raw.ch_names == ["CONT1/0", "CONT1001/0"]
 
-    def test_cont_ids_all(self) -> None:
-        raw = read_raw_dh5(TEST_FILE, cont_ids="all")
-        assert raw.info["nchan"] == 7
-
     def test_missing_cont_id_raises(self) -> None:
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(DH5Error, match="not found"):
             read_raw_dh5(TEST_FILE, cont_ids=[9999])
 
     def test_channel_names_include_cont_name(self) -> None:
@@ -96,6 +94,44 @@ class TestReadRawPerCont:
         assert set(raws.keys()) == {1, 60, 61, 62, 63, 64, 1001}
         for r in raws.values():
             assert r.info["nchan"] == 1
+
+
+# ---------------------------------------------------------------------------
+# read_raw_dh5_per_sfreq
+# ---------------------------------------------------------------------------
+class TestReadRawPerSfreq:
+    def test_returns_dict_of_raw(self) -> None:
+        raws = read_raw_dh5_per_sfreq(TEST_FILE)
+        assert isinstance(raws, dict)
+        assert all(isinstance(r, MneRawDH5) for r in raws.values())
+
+    def test_one_raw_per_unique_sfreq(self) -> None:
+        # All 7 CONTs in test.dh5 share 1 kHz → single entry
+        raws = read_raw_dh5_per_sfreq(TEST_FILE)
+        assert len(raws) == 1
+        assert 1000.0 in raws
+
+    def test_all_channels_included(self) -> None:
+        raws = read_raw_dh5_per_sfreq(TEST_FILE)
+        assert raws[1000.0].info["nchan"] == 7
+
+    def test_multiple_sfreqs(self, tmp_path) -> None:
+        from dh5io.cont import create_empty_cont_group_in_file
+        from dh5io.create import create_dh_file
+
+        fname = tmp_path / "multi_rate.dh5"
+        with create_dh_file(fname) as dh5:
+            for cid, period_ns in [(1, 1_000_000), (2, 500_000)]:
+                grp = create_empty_cont_group_in_file(
+                    dh5._file, cid, nSamples=100, nChannels=1,
+                    sample_period_ns=period_ns,
+                )
+                grp["INDEX"][0] = (1_000_000_000, 0)
+
+        raws = read_raw_dh5_per_sfreq(fname)
+        assert set(raws.keys()) == {1000.0, 2000.0}
+        assert raws[1000.0].info["nchan"] == 1
+        assert raws[2000.0].info["nchan"] == 1
 
 
 # ---------------------------------------------------------------------------
