@@ -133,11 +133,11 @@ import numpy as np
 import numpy.typing as npt
 
 from dh5io.errors import (
-    DH5Error,
-    DH5Warning,
     DH5CalibrationMissingWarning,
     DH5ChannelsMissingWarning,
     DH5DataTypeConversionWarning,
+    DH5Error,
+    DH5Warning,
 )
 from dhspec.cont import (
     CONT_DTYPE_NAME,
@@ -484,7 +484,8 @@ def validate_cont_group(cont_group: h5py.Group) -> None:
             DH5CalibrationMissingWarning(
                 f"Calibration attribute is missing from CONT group {cont_group.name}",
                 cont_id=cont_id,
-            )
+            ),
+            stacklevel=2,
         )
     else:
         if not isinstance(calibration, np.ndarray):

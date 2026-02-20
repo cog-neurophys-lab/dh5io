@@ -75,12 +75,18 @@ undo entry must be added to the processing history instead.
 """
 
 import datetime
+import getpass
 import logging
 import pathlib
+import warnings
+
 import h5py
 import h5py.h5t
+import numpy as np
+
 from dh5io.ensure_h5py_file import ensure_h5py_file
-from dh5io.errors import DH5Error, DH5Warning, DH5OperationIndexWarning
+from dh5io.errors import DH5Error, DH5OperationIndexWarning, DH5Warning
+from dh5io.version import get_version
 from dhspec.operations import (
     OPERATIONS_DATE_NAME,
     OPERATIONS_GROUP_NAME,
@@ -88,10 +94,6 @@ from dhspec.operations import (
     OPERATIONS_ORIGINAL_FILENAME_NAME,
     datetime_to_date_array,
 )
-import warnings
-import getpass
-import numpy as np
-from dh5io.version import get_version
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +159,8 @@ def operation_index_from_name(operation_name: str) -> int:
         warnings.warn(
             DH5OperationIndexWarning(
                 f"Operation index {strId} of operation {operation_name} is not a three digit number"
-            )
+            ),
+            stacklevel=2,
         )
     try:
         id = int(strId)
@@ -184,4 +187,8 @@ def validate_operations(file: h5py.File):
             )
 
         if id != operation_index_from_name(op):
-            warnings.warn(DH5OperationIndexWarning("Operation indices are not numbered sequentially"))
+            warnings.warn(
+                DH5OperationIndexWarning(
+                    "Operation indices are not numbered sequentially"
+                )
+            )

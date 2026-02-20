@@ -9,7 +9,7 @@ from dhspec.operations import (
     OPERATIONS_TOOL_NAME,
     datetime_to_date_array,
 )
-from dh5io.errors import DH5Error, DH5Warning
+from dh5io.errors import DH5Error, DH5Warning, DH5OperationIndexWarning
 
 from dh5io.operations import (
     add_operation_to_file,
@@ -82,8 +82,8 @@ def test_operation_index_from_name():
     assert operation_index_from_name("001_TestOperation") == 1
     assert operation_index_from_name("000_AnotherOperation") == 0
 
-    with pytest.raises(DH5Error):
-        assert operation_index_from_name("InvalidOperation") == 0
+    with pytest.warns(DH5OperationIndexWarning), pytest.raises(DH5Error):
+        operation_index_from_name("InvalidOperation")
 
 
 def test_validate_operations(temp_h5_file):
@@ -104,5 +104,5 @@ def test_validate_operations(temp_h5_file):
     operations_group.create_group("000_FirstOperation")
     operations_group.create_group("002_ThirdOperation")
 
-    with pytest.warns(DH5Warning):
+    with pytest.warns(DH5OperationIndexWarning):
         validate_operations(temp_h5_file)

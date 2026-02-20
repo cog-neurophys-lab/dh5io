@@ -28,7 +28,10 @@ from dh5io.dh5mne import (
 
 TEST_FILE: pathlib.Path = pathlib.Path(__file__).parent / "test.dh5"
 
-pytestmark = pytest.mark.skipif(not TEST_FILE.exists(), reason="test.dh5 not present")
+pytestmark = [
+    pytest.mark.skipif(not TEST_FILE.exists(), reason="test.dh5 not present"),
+    pytest.mark.filterwarnings("ignore::dh5io.errors.DH5DiscontinuousRegionsWarning"),
+]
 
 
 # ---------------------------------------------------------------------------

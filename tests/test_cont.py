@@ -1,8 +1,10 @@
 import numpy as np
+import pytest
 
 import dh5io
 import dh5io.cont as cont
 from dh5io.create import create_dh_file
+from dh5io.errors import DH5DataTypeConversionWarning, DH5ChannelsMissingWarning
 
 
 def test_create_empty_cont_group(tmp_path):
@@ -61,7 +63,7 @@ def test_create_cont_group_with_data(tmp_path):
     calibration = np.array([1.0, 1.0, 3.0])
     n_index_items = 5
 
-    data = np.random.random_integers(-1000, 1000, (100, 3))
+    data = np.random.randint(-1000, 1001, (100, 3))
     index = cont.create_empty_index_array(n_index_items)
     index[0] = (100, 200)
     index[1] = (300, 400)
@@ -69,21 +71,23 @@ def test_create_cont_group_with_data(tmp_path):
     index[3] = (700, 800)
     index[4] = (900, 1000)
     with create_dh_file(filename) as dh5file:
-        cont_group = cont.create_cont_group_from_data_in_file(
-            dh5file._file,
-            cont_group_id,
-            sample_period_ns=sample_period_ns,
-            calibration=calibration,
-            data=data,
-            index=index,
-            signal_type=cont.ContSignalType.LFP,
-            name=cont_group_name,
-        )
+        with pytest.warns(DH5DataTypeConversionWarning):
+            cont_group = cont.create_cont_group_from_data_in_file(
+                dh5file._file,
+                cont_group_id,
+                sample_period_ns=sample_period_ns,
+                calibration=calibration,
+                data=data,
+                index=index,
+                signal_type=cont.ContSignalType.LFP,
+                name=cont_group_name,
+            )
 
         assert cont_group.attrs["SamplePeriod"] == sample_period_ns
         assert cont_group["DATA"].shape == data.shape
         assert cont_group["INDEX"].shape == index.shape
-        cont.validate_cont_group(cont_group)
+        with pytest.warns(DH5ChannelsMissingWarning):
+            cont.validate_cont_group(cont_group)
 
     with dh5io.DH5File(filename, "r") as dh5file:
         cont_group = dh5file.get_cont_group_by_id(cont_group_id)
@@ -94,7 +98,8 @@ def test_create_cont_group_with_data(tmp_path):
         dataset = cont_group._group["DATA"]
         assert np.array_equal(np.array(cont_group._group["DATA"]), data)
         assert np.array_equal(np.array(cont_group._group["INDEX"]), index)
-        cont.validate_cont_group(cont_group._group)
+        with pytest.warns(DH5ChannelsMissingWarning):
+            cont.validate_cont_group(cont_group._group)
 
         # hdf5 group contents
         assert cont_group.id == cont_group_id

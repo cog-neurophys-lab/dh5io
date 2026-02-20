@@ -72,6 +72,8 @@ class TestDH5FileCont:
         with pytest.warns(DH5Warning):
             validate_dh5_file(filename)
 
+    @pytest.mark.filterwarnings("ignore::dh5io.errors.DH5Warning")
+    @pytest.mark.filterwarnings("ignore::dh5io.errors.DH5ChannelsMissingWarning")
     def test_calibration_missing_warning_has_cont_id(self, test_file: DH5File):
         with pytest.warns(DH5CalibrationMissingWarning) as record:
             validate_dh5_file(filename)
@@ -81,6 +83,8 @@ class TestDH5FileCont:
         cont_ids = {w.message.cont_id for w in calibration_warnings}
         assert cont_ids == {60, 61, 62, 63, 64}
 
+    @pytest.mark.filterwarnings("ignore::dh5io.errors.DH5Warning")
+    @pytest.mark.filterwarnings("ignore::dh5io.errors.DH5CalibrationMissingWarning")
     def test_channels_missing_warning_has_cont_id(self, test_file: DH5File):
         with pytest.warns(DH5ChannelsMissingWarning) as record:
             validate_dh5_file(filename)
