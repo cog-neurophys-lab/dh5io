@@ -215,7 +215,7 @@ class TestAnnotations:
 
     def test_region_boundary_annotations(self, raw: MneRawDH5) -> None:
         boundaries = [
-            a for a in raw.annotations if str(a["description"]) == "BAD_region_boundary"
+            a for a in raw.annotations if str(a["description"]) == "BAD_ACQ_SKIP"
         ]
         with h5py.File(TEST_FILE, "r") as f:
             n_regions = f["CONT1/INDEX"].shape[0]

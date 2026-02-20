@@ -25,6 +25,7 @@ from mne._fiff.utils import _mult_cal_one
 from mne.io.base import BaseRaw
 
 from dh5io.dh5file import DH5File
+from dh5io.errors import DH5Error, DH5Warning, DH5DiscontinuousRegionsWarning
 
 __all__: list[str] = [
     "read_raw_dh5",
@@ -354,7 +355,7 @@ def annotations_from_dh5(
                 boundary_sample: float = float(rl.offset[i + 1]) / sfreq
                 onsets.append(boundary_sample)
                 durations.append(0.0)
-                descriptions.append("BAD_region_boundary")
+                descriptions.append("BAD_ACQ_SKIP")
 
         # TRIALMAP
         trialmap = dh5.get_trialmap()
@@ -513,6 +514,15 @@ class MneRawDH5(BaseRaw):
         )
         self._sample_period_ns: int = sample_period_ns
         self._sfreq: float = sfreq
+
+        n_regions = len(self._region_lookup.start_ns)
+        if n_regions > 1:
+            warnings.warn(
+                f"DH5 file contains {n_regions} discontinuous recording regions. "
+                "They have been concatenated; gaps are marked as BAD_ACQ_SKIP annotations.",
+                DH5DiscontinuousRegionsWarning,
+                stacklevel=3,
+            )
 
         del dh5
 

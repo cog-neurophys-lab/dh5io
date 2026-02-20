@@ -54,6 +54,24 @@ def dh5file_from_h5file(file: h5py.File):
     return DH5File(file.filename, mode=file.mode)
 
 
+def cont_blocks_start_simultaneously(fname: str | pathlib.Path) -> bool:
+    """Return True if all CONT blocks in the file share the same first-region start timestamp.
+
+    Parameters
+    ----------
+    fname : str | Path
+        Path to the DH5 file.
+
+    Returns
+    -------
+    bool
+        True when every CONT block's INDEX[0]["time"] is identical, or when the
+        file contains fewer than two CONT blocks.
+    """
+    with DH5File(fname) as dh5:
+        return dh5.cont_blocks_start_simultaneously()
+
+
 class DH5File:
     """Class for interacting with DAQ-HDF5 (*.dh5) files from the Kreiter lab.
 
@@ -187,6 +205,21 @@ class DH5File:
 
     def get_cont_index_by_id(self, cont_id: int) -> h5py.Dataset:
         return self.get_cont_group_by_id(cont_id).get("INDEX")
+
+    def cont_blocks_start_simultaneously(self) -> bool:
+        """Return True if all CONT blocks share the same first-region start timestamp.
+
+        Returns
+        -------
+        bool
+            True when every CONT block's INDEX[0]["time"] is identical, or when
+            the file contains fewer than two CONT blocks.
+        """
+        conts = self.get_cont_groups()
+        if len(conts) < 2:
+            return True
+        first_time = conts[0].index[0]["time"]
+        return all(c.index[0]["time"] == first_time for c in conts[1:])
 
     # wavelet groups
     def get_wavelet_groups(self) -> list[wavelet.Wavelet]:
