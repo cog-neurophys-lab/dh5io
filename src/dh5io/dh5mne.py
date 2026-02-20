@@ -311,36 +311,56 @@ def epochs_from_dh5(
     )
 
 
-def annotations_from_dh5(
+def _annotations_from_dh5_continuous(
+    fname: str | pathlib.Path,
+    start_ns: int,
+    sfreq: float,
+) -> mne.Annotations:
+    """Annotation builder for the normal (continuous, single-region) case.
+
+    Timestamps are converted with the simple formula ``(ts_ns - start_ns) / 1e9``.
+    No region lookup or gap handling is needed.
+    """
+    onsets: list[float] = []
+    durations: list[float] = []
+    descriptions: list[str] = []
+
+    with DH5File(fname) as dh5:
+        trialmap = dh5.get_trialmap()
+        if trialmap is not None and len(trialmap) > 0:
+            for i in range(len(trialmap)):
+                t_start = (int(trialmap.start_time_nanoseconds[i]) - start_ns) / 1e9
+                t_end = (int(trialmap.end_time_nanoseconds[i]) - start_ns) / 1e9
+                dur = t_end - t_start
+                if dur > 0:
+                    onsets.append(t_start)
+                    durations.append(dur)
+                    stim_no: int = int(trialmap.trial_type_numbers[i])
+                    outcome: int = int(trialmap.trial_outcomes_integer[i])
+                    descriptions.append(f"trial/StimNo={stim_no}/Outcome={outcome}")
+
+        events_arr = dh5.get_events_array()
+        if events_arr is not None and len(events_arr) > 0:
+            for j in range(len(events_arr)):
+                t = (int(events_arr["time"][j]) - start_ns) / 1e9
+                onsets.append(t)
+                durations.append(0.0)
+                descriptions.append(f"event/{events_arr['event'][j]}")
+
+    return mne.Annotations(onset=onsets, duration=durations, description=descriptions)
+
+
+def _annotations_from_dh5_discontinuous(
     fname: str | pathlib.Path,
     region_lookup: _RegionLookup,
     sample_period_ns: int,
     sfreq: float,
 ) -> mne.Annotations:
-    """Build MNE Annotations from a DH5 file's TRIALMAP and EV02 events.
+    """Annotation builder for the discontinuous (multi-region) case.
 
-    This is the public counterpart of the internal ``_add_dh5_annotations``
-    method.  It can be called independently of ``MneRawDH5`` whenever you
-    need the annotation objects without constructing a full Raw object.
-
-    Parameters
-    ----------
-    fname : str | pathlib.Path
-        Path to the DH5 file.
-    region_lookup : _RegionLookup
-        Precomputed region-lookup for the CONT block whose time axis should
-        be used for the annotations (build with :func:`_build_region_lookup`).
-    sample_period_ns : int
-        Sample period in nanoseconds (= ``round(1e9 / sfreq)``).
-    sfreq : float
-        Sampling frequency in Hz.
-
-    Returns
-    -------
-    annotations : mne.Annotations
-        MNE Annotations with trial, event, and region-boundary entries.
-        An empty ``mne.Annotations`` object is returned when the file
-        contains no mappable timestamps.
+    Uses the region lookup to map absolute nanosecond timestamps onto the
+    stitched MNE sample timeline and inserts ``BAD_ACQ_SKIP`` annotations at
+    each acquisition gap.
     """
     rl = region_lookup
 
@@ -391,6 +411,67 @@ def annotations_from_dh5(
                 descriptions.append(f"event/{events_arr['event'][j]}")
 
     return mne.Annotations(onset=onsets, duration=durations, description=descriptions)
+
+
+def annotations_from_dh5(
+    fname: str | pathlib.Path,
+    cont_id: int | None = None,
+) -> mne.Annotations:
+    """Build MNE Annotations from a DH5 file's TRIALMAP and EV02 events.
+
+    Can be called independently of ``MneRawDH5`` whenever you need the
+    annotation objects without constructing a full Raw object.
+
+    For continuous files (all CONT blocks have a single region) the conversion
+    is trivial: ``(timestamp_ns - start_ns) / 1e9``.  For discontinuous files
+    the full region-lookup machinery is used and ``BAD_ACQ_SKIP`` annotations
+    are inserted at acquisition gaps.
+
+    Parameters
+    ----------
+    fname : str | pathlib.Path
+        Path to the DH5 file.
+    cont_id : int | None
+        ID of the CONT block whose time axis is used as the reference for
+        converting nanosecond timestamps to MNE sample times.  When ``None``
+        (default) the first CONT block is used, provided all CONT blocks
+        share the same start timestamp.  If they do not, a ``DH5Error`` is
+        raised and the caller must supply an explicit ``cont_id``.
+
+    Returns
+    -------
+    annotations : mne.Annotations
+        MNE Annotations with trial, event, and (for discontinuous files)
+        region-boundary entries.  An empty ``mne.Annotations`` object is
+        returned when the file contains no mappable timestamps.
+
+    Raises
+    ------
+    DH5Error
+        If ``cont_id`` is ``None`` and the CONT blocks do not all start at
+        the same time.
+    """
+    fname = pathlib.Path(fname)
+    with DH5File(fname) as dh5:
+        if cont_id is None:
+            if not dh5.cont_blocks_start_simultaneously():
+                ids = dh5.get_cont_group_ids()
+                raise DH5Error(
+                    f"CONT blocks in {fname.name} do not all start at the same time "
+                    f"(IDs: {ids}). Pass cont_id=<id> to select a reference block."
+                )
+            cont_id = dh5.get_cont_group_ids()[0]
+        ref_cont = dh5.get_cont_group_by_id(cont_id)
+        sample_period_ns = int(ref_cont.sample_period)
+        sfreq = 1e9 / sample_period_ns
+        start_ns = int(ref_cont.index[0]["time"])
+
+        if not dh5.is_continuous():
+            total_samples = ref_cont.n_samples
+            region_lookup = _build_region_lookup(ref_cont.index, total_samples, sample_period_ns)
+            return _annotations_from_dh5_discontinuous(fname, region_lookup, sample_period_ns, sfreq)
+
+    return _annotations_from_dh5_continuous(fname, start_ns, sfreq)
 
 
 # ---------------------------------------------------------------------------
@@ -505,31 +586,36 @@ class MneRawDH5(BaseRaw):
             verbose=verbose,
         )
 
-        # Build region lookup from first selected CONT's INDEX
         sample_period_ns: int = int(1e9 / sfreq)
-        first_cont = dh5.get_cont_group_by_id(selected[0].id)
-        index: npt.NDArray = first_cont.index
-        self._region_lookup = _build_region_lookup(
-            index, total_samples, sample_period_ns
-        )
         self._sample_period_ns: int = sample_period_ns
         self._sfreq: float = sfreq
 
-        n_regions = len(self._region_lookup.start_ns)
-        if n_regions > 1:
+        first_cont = dh5.get_cont_group_by_id(selected[0].id)
+        self._start_ns: int = int(first_cont.index[0]["time"])
+
+        if dh5.is_continuous():
+            self._region_lookup: _RegionLookup | None = None
+        else:
+            n_regions = first_cont.n_regions
             warnings.warn(
                 f"DH5 file contains {n_regions} discontinuous recording regions. "
                 "They have been concatenated; gaps are marked as BAD_ACQ_SKIP annotations.",
                 DH5DiscontinuousRegionsWarning,
                 stacklevel=3,
             )
+            self._region_lookup = _build_region_lookup(
+                first_cont.index, total_samples, sample_period_ns
+            )
 
         del dh5
 
         # Add annotations
-        annot = annotations_from_dh5(
-            fname, self._region_lookup, self._sample_period_ns, self._sfreq
-        )
+        if self._region_lookup is None:
+            annot = _annotations_from_dh5_continuous(fname, self._start_ns, self._sfreq)
+        else:
+            annot = _annotations_from_dh5_discontinuous(
+                fname, self._region_lookup, self._sample_period_ns, self._sfreq
+            )
         if len(annot) > 0:
             self.set_annotations(annot, emit_warning=False)
 

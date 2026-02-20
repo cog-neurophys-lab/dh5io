@@ -1,6 +1,6 @@
 from dh5io.cont import Cont
 from dh5io.create import create_dh_file
-from dh5io.dh5file import DH5File, cont_blocks_start_simultaneously
+from dh5io.dh5file import DH5File, cont_blocks_start_simultaneously, is_continuous
 from dh5io.errors import (
     DH5Error,
     DH5Warning,
@@ -27,4 +27,5 @@ __all__ = [
     "Wavelet",
     "create_dh_file",
     "cont_blocks_start_simultaneously",
+    "is_continuous",
 ]

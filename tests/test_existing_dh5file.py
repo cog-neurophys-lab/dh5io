@@ -2,7 +2,7 @@ import pathlib
 import pytest
 import numpy
 import h5py
-from dh5io import DH5File, DH5Warning, DH5CalibrationMissingWarning, DH5ChannelsMissingWarning, cont_blocks_start_simultaneously
+from dh5io import DH5File, DH5Warning, DH5CalibrationMissingWarning, DH5ChannelsMissingWarning, cont_blocks_start_simultaneously, is_continuous
 from dh5io import DH5Error
 from dh5io.validation import validate_dh5_file
 from dh5io.cont import Cont, create_empty_cont_group_in_file
@@ -187,3 +187,37 @@ class TestContBlocksStartSimultaneously:
             grp2 = create_empty_cont_group_in_file(dh5._file, 2, nSamples=100, nChannels=1, sample_period_ns=1_000_000)
             grp2["INDEX"][0] = (2_000_000_000, 0)
         assert cont_blocks_start_simultaneously(fname) is False
+
+
+class TestIsContinuous:
+    def test_real_file_method(self, test_file: DH5File):
+        # The test file has CONT blocks with multiple regions
+        assert test_file.is_continuous() is False
+
+    def test_real_file_free_function(self):
+        assert is_continuous(filename) is False
+
+    def test_single_region_method(self, tmp_path):
+        fname = tmp_path / "single_region.dh5"
+        with create_dh_file(fname) as dh5:
+            grp = create_empty_cont_group_in_file(dh5._file, 1, nSamples=100, nChannels=1, sample_period_ns=1_000_000)
+            grp["INDEX"][0] = (1_000_000_000, 0)
+        with DH5File(fname) as dh5:
+            assert dh5.is_continuous() is True
+
+    def test_multi_region_method(self, tmp_path):
+        fname = tmp_path / "multi_region.dh5"
+        with create_dh_file(fname) as dh5:
+            grp = create_empty_cont_group_in_file(dh5._file, 1, nSamples=100, nChannels=1, sample_period_ns=1_000_000, n_index_items=2)
+            grp["INDEX"][0] = (1_000_000_000, 0)
+            grp["INDEX"][1] = (2_000_000_000, 50)
+        with DH5File(fname) as dh5:
+            assert dh5.is_continuous() is False
+
+    def test_multi_region_free_function(self, tmp_path):
+        fname = tmp_path / "multi_region2.dh5"
+        with create_dh_file(fname) as dh5:
+            grp = create_empty_cont_group_in_file(dh5._file, 1, nSamples=100, nChannels=1, sample_period_ns=1_000_000, n_index_items=2)
+            grp["INDEX"][0] = (1_000_000_000, 0)
+            grp["INDEX"][1] = (2_000_000_000, 50)
+        assert is_continuous(fname) is False

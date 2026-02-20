@@ -16,7 +16,6 @@ import pytest
 
 from dh5io.dh5mne import (
     MneRawDH5,
-    _RegionLookup,
     _batch_ns_to_sample_time,
     _build_region_lookup,
     _ns_to_sample_time,
@@ -250,32 +249,18 @@ class TestAnnotations:
 class TestAnnotationsFromDH5:
     """annotations_from_dh5 should return the same annotations as MneRawDH5."""
 
-    @pytest.fixture()
-    def region_lookup_and_params(self) -> tuple[_RegionLookup, int, float]:
-        raw = read_raw_dh5(TEST_FILE, cont_ids=[1])
-        return raw._region_lookup, raw._sample_period_ns, raw._sfreq
-
-    def test_returns_mne_annotations(
-        self, region_lookup_and_params: tuple[_RegionLookup, int, float]
-    ) -> None:
-        rl, period_ns, sfreq = region_lookup_and_params
-        annot = annotations_from_dh5(TEST_FILE, rl, period_ns, sfreq)
+    def test_returns_mne_annotations(self) -> None:
+        annot = annotations_from_dh5(TEST_FILE)
         assert isinstance(annot, mne.Annotations)
 
-    def test_matches_raw_annotations(
-        self, region_lookup_and_params: tuple[_RegionLookup, int, float]
-    ) -> None:
+    def test_matches_raw_annotations(self) -> None:
         """annotations_from_dh5 should produce the same set as MneRawDH5."""
-        rl, period_ns, sfreq = region_lookup_and_params
         raw = read_raw_dh5(TEST_FILE, cont_ids=[1])
-        standalone = annotations_from_dh5(TEST_FILE, rl, period_ns, sfreq)
+        standalone = annotations_from_dh5(TEST_FILE, cont_id=1)
         assert len(standalone) == len(raw.annotations)
 
-    def test_trial_annotations_present(
-        self, region_lookup_and_params: tuple[_RegionLookup, int, float]
-    ) -> None:
-        rl, period_ns, sfreq = region_lookup_and_params
-        annot = annotations_from_dh5(TEST_FILE, rl, period_ns, sfreq)
+    def test_trial_annotations_present(self) -> None:
+        annot = annotations_from_dh5(TEST_FILE)
         trials = [a for a in annot if str(a["description"]).startswith("trial/")]
         assert len(trials) > 0
 

@@ -54,6 +54,23 @@ def dh5file_from_h5file(file: h5py.File):
     return DH5File(file.filename, mode=file.mode)
 
 
+def is_continuous(fname: str | pathlib.Path) -> bool:
+    """Return True if every CONT block in the file contains exactly one region.
+
+    Parameters
+    ----------
+    fname : str | Path
+        Path to the DH5 file.
+
+    Returns
+    -------
+    bool
+        True when all CONT blocks have a single region (no acquisition gaps).
+    """
+    with DH5File(fname) as dh5:
+        return dh5.is_continuous()
+
+
 def cont_blocks_start_simultaneously(fname: str | pathlib.Path) -> bool:
     """Return True if all CONT blocks in the file share the same first-region start timestamp.
 
@@ -205,6 +222,20 @@ class DH5File:
 
     def get_cont_index_by_id(self, cont_id: int) -> h5py.Dataset:
         return self.get_cont_group_by_id(cont_id).get("INDEX")
+
+    def is_continuous(self) -> bool:
+        """Return True if every CONT block contains exactly one region.
+
+        A file is considered continuous when no CONT block has gaps in its
+        recording (i.e. all INDEX arrays have length 1).
+
+        Returns
+        -------
+        bool
+            True when all CONT blocks have a single region, or when the file
+            contains no CONT blocks.
+        """
+        return all(c.n_regions == 1 for c in self.get_cont_groups())
 
     def cont_blocks_start_simultaneously(self) -> bool:
         """Return True if all CONT blocks share the same first-region start timestamp.
