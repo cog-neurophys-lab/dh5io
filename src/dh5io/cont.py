@@ -126,23 +126,25 @@ region, and their respective time stamps.
 """
 
 import logging
-import h5py
 import warnings
-from dh5io.errors import DH5Error, DH5Warning
-from dhspec.cont import (
-    CalibrationType,
-    ContSignalType,
-    CONT_DTYPE_NAME,
-    CONT_PREFIX,
-    cont_id_from_name,
-    cont_name_from_id,
-    DATA_DATASET_NAME,
-    INDEX_DATASET_NAME,
-    create_empty_index_array,
-    create_channel_info,
-)
+
+import h5py
 import numpy as np
 import numpy.typing as npt
+
+from dh5io.errors import DH5Error, DH5Warning
+from dhspec.cont import (
+    CONT_DTYPE_NAME,
+    CONT_PREFIX,
+    DATA_DATASET_NAME,
+    INDEX_DATASET_NAME,
+    CalibrationType,
+    ContSignalType,
+    cont_id_from_name,
+    cont_name_from_id,
+    create_channel_info,
+    create_empty_index_array,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +173,7 @@ class Cont:
             """
 
     def __repr__(self):
-        return f"Cont(group={self._group.name})"
+        return f"Cont(group={self._group.name}, file={self._group.file.filename})"
 
     # properties
 
