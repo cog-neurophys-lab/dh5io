@@ -35,3 +35,13 @@ class DH5OperationIndexWarning(DH5Warning):
 class DH5DiscontinuousRegionsWarning(DH5Warning):
     """Raised when a DH5 file contains multiple discontinuous CONT regions."""
     pass
+
+
+class DH5SampleCountMismatchWarning(DH5Warning):
+    """Raised when selected CONT blocks have different sample counts."""
+    pass
+
+
+class DH5SampleRateMismatchWarning(DH5Warning):
+    """Raised when CONT blocks with non-matching sampling rates are skipped."""
+    pass

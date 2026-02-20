@@ -120,16 +120,34 @@ class DH5File:
         return f"DH5File({self._file.filename!r}, mode={self._file.mode!r})"
 
     def __str__(self):
-        cont_group_names = self.get_cont_group_names()
-        cont_groups_str = ""
-        if cont_group_names:
-            cont_groups_lines = [
-                f"        │   ├─── {name}" for name in cont_group_names[:-1]
-            ]
-            cont_groups_lines.append(f"        │   └─── {cont_group_names[-1]}")
-            cont_groups_str = "\n".join(cont_groups_lines)
+        cont_by_sfreq = self.get_cont_groups_by_sfreq()
+        n_cont = sum(len(g) for g in cont_by_sfreq.values())
+        continuous = self.is_continuous()
+        simultaneous = self.cont_blocks_start_simultaneously()
+        cont_flags = []
+        if continuous:
+            cont_flags.append("continuous")
         else:
-            cont_groups_str = "        │   └── (none)"
+            cont_flags.append("discontinuous")
+        if n_cont > 1:
+            cont_flags.append("simultaneous start" if simultaneous else "non-simultaneous start")
+        cont_flags_str = f"  [{', '.join(cont_flags)}]" if cont_flags else ""
+
+        cont_groups_lines = []
+        sfreqs = list(cont_by_sfreq.keys())
+        for si, sfreq in enumerate(sfreqs):
+            branch = "├" if si < len(sfreqs) - 1 else "└"
+            cont_groups_lines.append(f"        │   {branch}─── {sfreq:g} Hz")
+            conts = cont_by_sfreq[sfreq]
+            inner = "│" if si < len(sfreqs) - 1 else " "
+            for ni, c in enumerate(conts):
+                nbranch = "├" if ni < len(conts) - 1 else "└"
+                info = f"{c.n_channels}ch, {c.n_samples} samples"
+                if c.n_regions > 1:
+                    info += f", {c.n_regions} regions"
+                label = f"CONT{c.id}: {c.name} — {info}" if c.name else f"CONT{c.id} — {info}"
+                cont_groups_lines.append(f"        │   {inner}   {nbranch}─── {label}")
+        cont_groups_str = "\n".join(cont_groups_lines) if cont_groups_lines else "        │   └── (none)"
 
         spike_group_names = self.get_spike_group_names()
         spike_groups_str = ""
@@ -163,7 +181,7 @@ class DH5File:
 
         return f"""
     DAQ-HDF5 File (version {self.version}) {self._file.filename:s} containing:
-        ├───CONT Groups ({len(cont_group_names):d}):
+        ├───CONT Groups ({n_cont:d}){cont_flags_str}:
 {cont_groups_str}
         ├───SPIKE Groups ({len(spike_group_names):d}):
 {spike_groups_str}
@@ -186,6 +204,29 @@ class DH5File:
         return [
             cont.Cont(group) for group in cont.get_cont_groups_from_file(self._file)
         ]
+
+    def get_cont_groups_by_sfreq(self) -> dict[float, list[cont.Cont]]:
+        """Return CONT groups grouped by sampling rate (Hz)."""
+        groups: dict[float, list[cont.Cont]] = {}
+        for c in self.get_cont_groups():
+            sfreq = 1e9 / c.sample_period
+            groups.setdefault(sfreq, []).append(c)
+        return groups
+
+    def get_cont_groups_by_ids(self, ids: list[int]) -> list[cont.Cont]:
+        """Return CONT groups for the given IDs, preserving the requested order.
+
+        Raises
+        ------
+        DH5Error
+            If any of the requested IDs are not present in the file.
+        """
+        from dh5io.errors import DH5Error
+        all_conts = {c.id: c for c in self.get_cont_groups()}
+        missing = set(ids) - all_conts.keys()
+        if missing:
+            raise DH5Error(f"CONT group IDs not found in {self._file.filename}: {missing}")
+        return [all_conts[i] for i in ids]
 
     def get_cont_group_names(self) -> list[str]:
         return cont.get_cont_group_names_from_file(self._file)
@@ -271,7 +312,8 @@ class DH5File:
 
     # trialmap
     def get_trialmap(self) -> trialmap.Trialmap | None:
-        return trialmap.Trialmap(trialmap.get_trialmap_from_file(self._file))
+        data = trialmap.get_trialmap_from_file(self._file)
+        return trialmap.Trialmap(data) if data is not None else None
 
     def get_events_dataset(self) -> h5py.Dataset | None:
         return event_triggers.get_event_triggers_dataset_from_file(self._file)

@@ -9,6 +9,8 @@ from dh5io.errors import (
     DH5DataTypeConversionWarning,
     DH5OperationIndexWarning,
     DH5DiscontinuousRegionsWarning,
+    DH5SampleCountMismatchWarning,
+    DH5SampleRateMismatchWarning,
 )
 from dh5io.trialmap import Trialmap
 from dh5io.wavelet import Wavelet
@@ -21,6 +23,8 @@ __all__ = [
     "DH5DataTypeConversionWarning",
     "DH5OperationIndexWarning",
     "DH5DiscontinuousRegionsWarning",
+    "DH5SampleCountMismatchWarning",
+    "DH5SampleRateMismatchWarning",
     "DH5File",
     "Cont",
     "Trialmap",
