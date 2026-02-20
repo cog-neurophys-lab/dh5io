@@ -16,6 +16,7 @@ import pytest
 
 from dh5io.dh5mne import (
     MneRawDH5,
+    _RegionLookup,
     _batch_ns_to_sample_time,
     _build_region_lookup,
     _ns_to_sample_time,
@@ -261,14 +262,7 @@ class TestEpochsFromDH5:
 # ---------------------------------------------------------------------------
 class TestTimestampMapping:
     @pytest.fixture()
-    def single_region(
-        self,
-    ) -> tuple[
-        npt.NDArray[np.int64],
-        npt.NDArray[np.int64],
-        npt.NDArray[np.int64],
-        npt.NDArray[np.int64],
-    ]:
+    def single_region(self) -> _RegionLookup:
         """Single contiguous recording region: 100k samples at 1 kHz."""
         index = np.array([(0, 0)], dtype=[("time", "<i8"), ("offset", "<i8")])
         return _build_region_lookup(
@@ -276,14 +270,7 @@ class TestTimestampMapping:
         )
 
     @pytest.fixture()
-    def multi_region(
-        self,
-    ) -> tuple[
-        npt.NDArray[np.int64],
-        npt.NDArray[np.int64],
-        npt.NDArray[np.int64],
-        npt.NDArray[np.int64],
-    ]:
+    def multi_region(self) -> _RegionLookup:
         """Two regions with a gap in between."""
         index = np.array(
             [(0, 0), (2_000_000_000, 1000)],  # 1s gap after 1000 samples
@@ -293,60 +280,49 @@ class TestTimestampMapping:
             index, total_samples=2000, sample_period_ns=1_000_000
         )
 
-    def test_single_region_exact(self, single_region: tuple) -> None:
-        rs, re, ro, rn = single_region
-        t = _ns_to_sample_time(50_000_000_000, rs, re, ro, 1_000_000, 1000.0)
+    def test_single_region_exact(self, single_region: _RegionLookup) -> None:
+        t = _ns_to_sample_time(50_000_000_000, single_region, 1_000_000, 1000.0)
         assert t == pytest.approx(50.0)
 
-    def test_single_region_start(self, single_region: tuple) -> None:
-        rs, re, ro, rn = single_region
-        t = _ns_to_sample_time(0, rs, re, ro, 1_000_000, 1000.0)
+    def test_single_region_start(self, single_region: _RegionLookup) -> None:
+        t = _ns_to_sample_time(0, single_region, 1_000_000, 1000.0)
         assert t == pytest.approx(0.0)
 
-    def test_single_region_end(self, single_region: tuple) -> None:
-        rs, re, ro, rn = single_region
-        t = _ns_to_sample_time(100_000_000_000, rs, re, ro, 1_000_000, 1000.0)
+    def test_single_region_end(self, single_region: _RegionLookup) -> None:
+        t = _ns_to_sample_time(100_000_000_000, single_region, 1_000_000, 1000.0)
         assert t == pytest.approx(100.0)
 
-    def test_before_all_regions_with_tolerance(self, single_region: tuple) -> None:
-        rs, re, ro, rn = single_region
-        t = _ns_to_sample_time(-5_000_000, rs, re, ro, 1_000_000, 1000.0)
+    def test_before_all_regions_with_tolerance(self, single_region: _RegionLookup) -> None:
+        t = _ns_to_sample_time(-5_000_000, single_region, 1_000_000, 1000.0)
         assert t == pytest.approx(0.0)
 
-    def test_far_before_all_regions_returns_none(self, single_region: tuple) -> None:
-        rs, re, ro, rn = single_region
-        t = _ns_to_sample_time(-100_000_000_000, rs, re, ro, 1_000_000, 1000.0)
+    def test_far_before_all_regions_returns_none(self, single_region: _RegionLookup) -> None:
+        t = _ns_to_sample_time(-100_000_000_000, single_region, 1_000_000, 1000.0)
         assert t is None
 
-    def test_gap_snaps_to_start_of_next_region(self, multi_region: tuple) -> None:
-        rs, re, ro, rn = multi_region
+    def test_gap_snaps_to_start_of_next_region(self, multi_region: _RegionLookup) -> None:
         # Gap: region 0 ends at t=1_000_000_000ns (1000 samples * 1ms),
         #      region 1 starts at t=2_000_000_000ns.
         # Timestamp at 1_999_000_000: 999ms from end of region 0, 1ms from start of region 1
         # → closer to start of region 1 → snaps to offset=1000 → 1000/1000Hz = 1.0s
-        gap_time = 1_999_000_000
-        t = _ns_to_sample_time(gap_time, rs, re, ro, 1_000_000, 1000.0)
+        t = _ns_to_sample_time(1_999_000_000, multi_region, 1_000_000, 1000.0)
         assert t == pytest.approx(1.0)
 
-    def test_gap_snaps_to_end_of_prev_region(self, multi_region: tuple) -> None:
-        rs, re, ro, rn = multi_region
+    def test_gap_snaps_to_end_of_prev_region(self, multi_region: _RegionLookup) -> None:
         # Timestamp at 1_001_000_000: 1ms from end of region 0, 999ms from start of region 1
         # → closer to end of region 0 → snaps to last sample of region 0 = offset 999 → 999/1000Hz
-        gap_time = 1_001_000_000
-        t = _ns_to_sample_time(gap_time, rs, re, ro, 1_000_000, 1000.0)
+        t = _ns_to_sample_time(1_001_000_000, multi_region, 1_000_000, 1000.0)
         assert t == pytest.approx(999 / 1000.0)
 
-    def test_gap_snaps_batch_to_end_of_prev_region(self, multi_region: tuple) -> None:
-        rs, re, ro, rn = multi_region
+    def test_gap_snaps_batch_to_end_of_prev_region(self, multi_region: _RegionLookup) -> None:
         # Same as above but via _batch_ns_to_sample_time
         times = np.array([1_001_000_000], dtype=np.int64)
-        result = _batch_ns_to_sample_time(times, rs, re, ro, 1_000_000, 1000.0)
+        result = _batch_ns_to_sample_time(times, multi_region, 1_000_000, 1000.0)
         assert result[0] == pytest.approx(999 / 1000.0)
 
-    def test_batch_returns_nan_for_unmappable(self, single_region: tuple) -> None:
-        rs, re, ro, rn = single_region
+    def test_batch_returns_nan_for_unmappable(self, single_region: _RegionLookup) -> None:
         times = np.array([-999_999_999_999, 50_000_000_000], dtype=np.int64)
-        result = _batch_ns_to_sample_time(times, rs, re, ro, 1_000_000, 1000.0)
+        result = _batch_ns_to_sample_time(times, single_region, 1_000_000, 1000.0)
         assert np.isnan(result[0])
         assert result[1] == pytest.approx(50.0)
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pathlib
 import warnings
+from dataclasses import dataclass
 from typing import Literal
 
 try:
@@ -34,26 +35,30 @@ __all__: list[str] = [
 
 
 # ---------------------------------------------------------------------------
-# Data class for per-CONT metadata collected at init
+# Data classes
 # ---------------------------------------------------------------------------
+@dataclass
 class _ContInfo:
-    __slots__ = ("id", "n_channels", "n_samples", "sfreq", "calibration", "name")
+    id: int
+    n_channels: int
+    n_samples: int
+    sfreq: float
+    calibration: npt.NDArray[np.float64] | None
+    name: str
 
-    def __init__(
-        self,
-        id: int,
-        n_channels: int,
-        n_samples: int,
-        sfreq: float,
-        calibration: npt.NDArray[np.float64] | None,
-        name: str,
-    ) -> None:
-        self.id = id
-        self.n_channels = n_channels
-        self.n_samples = n_samples
-        self.sfreq = sfreq
-        self.calibration = calibration
-        self.name = name
+
+@dataclass
+class _RegionLookup:
+    """Precomputed arrays for fast timestamp→sample mapping.
+
+    All arrays have shape (n_regions,). region_end_ns is exclusive
+    (= region_start_ns + n_samples * sample_period_ns).
+    """
+
+    start_ns: npt.NDArray[np.int64]
+    end_ns: npt.NDArray[np.int64]
+    offset: npt.NDArray[np.int64]
+    n_samples: npt.NDArray[np.int64]
 
 
 # ---------------------------------------------------------------------------
@@ -61,36 +66,25 @@ class _ContInfo:
 # ---------------------------------------------------------------------------
 def _build_region_lookup(
     index: npt.NDArray, total_samples: int, sample_period_ns: int
-) -> tuple[
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-    npt.NDArray[np.int64],
-]:
-    """Precompute arrays for fast timestamp→sample mapping.
-
-    Returns (region_start_ns, region_end_ns, region_offset, region_n_samples)
-    all with shape (n_regions,).
-    """
+) -> _RegionLookup:
+    """Precompute arrays for fast timestamp→sample mapping."""
     n = len(index)
-    region_start_ns = index["time"].copy()
-    region_offset = index["offset"].copy()
+    start_ns = index["time"].copy()
+    offset = index["offset"].copy()
 
-    region_n_samples = np.empty(n, dtype=np.int64)
+    n_samples = np.empty(n, dtype=np.int64)
     for i in range(n - 1):
-        region_n_samples[i] = region_offset[i + 1] - region_offset[i]
-    region_n_samples[n - 1] = total_samples - region_offset[n - 1]
+        n_samples[i] = offset[i + 1] - offset[i]
+    n_samples[n - 1] = total_samples - offset[n - 1]
 
-    region_end_ns = region_start_ns + region_n_samples * sample_period_ns
+    end_ns = start_ns + n_samples * sample_period_ns
 
-    return region_start_ns, region_end_ns, region_offset, region_n_samples
+    return _RegionLookup(start_ns=start_ns, end_ns=end_ns, offset=offset, n_samples=n_samples)
 
 
 def _ns_to_sample_time(
     time_ns: int | np.int64,
-    region_start_ns: npt.NDArray[np.int64],
-    region_end_ns: npt.NDArray[np.int64],
-    region_offset: npt.NDArray[np.int64],
+    rl: _RegionLookup,
     sample_period_ns: int,
     sfreq: float,
 ) -> float | None:
@@ -101,41 +95,37 @@ def _ns_to_sample_time(
     If it's before all regions (within 10-sample tolerance), snap to start.
     Returns None if the timestamp is unmappable.
     """
-    n = len(region_start_ns)
+    n = len(rl.start_ns)
 
-    # Check each region (region_end_ns is exclusive: start + N * period)
+    # Check each region (end_ns is exclusive: start + N * period)
     for i in range(n):
-        if region_start_ns[i] <= time_ns <= region_end_ns[i]:
-            sample_in_region = (time_ns - region_start_ns[i]) / sample_period_ns
-            return (region_offset[i] + sample_in_region) / sfreq
+        if rl.start_ns[i] <= time_ns <= rl.end_ns[i]:
+            sample_in_region = (time_ns - rl.start_ns[i]) / sample_period_ns
+            return (rl.offset[i] + sample_in_region) / sfreq
 
     # Check gaps between regions — snap to nearest boundary
     for i in range(n - 1):
-        if region_end_ns[i] < time_ns < region_start_ns[i + 1]:
-            dist_to_end = time_ns - region_end_ns[i]
-            dist_to_start = region_start_ns[i + 1] - time_ns
+        if rl.end_ns[i] < time_ns < rl.start_ns[i + 1]:
+            dist_to_end = time_ns - rl.end_ns[i]
+            dist_to_start = rl.start_ns[i + 1] - time_ns
             if dist_to_end <= dist_to_start:
                 # Snap to last sample of region i
-                last_sample_of_i = region_offset[i + 1] - 1
-                return last_sample_of_i / sfreq
+                return (rl.offset[i + 1] - 1) / sfreq
             else:
                 # Snap to first sample of region i+1
-                return region_offset[i + 1] / sfreq
+                return rl.offset[i + 1] / sfreq
 
     # Before first region — allow small tolerance (10 samples)
-    if time_ns < region_start_ns[0]:
-        if region_start_ns[0] - time_ns < sample_period_ns * 10:
-            return region_offset[0] / sfreq
+    if time_ns < rl.start_ns[0]:
+        if rl.start_ns[0] - time_ns < sample_period_ns * 10:
+            return rl.offset[0] / sfreq
 
     # After last region — allow small tolerance (10 samples)
-    if time_ns > region_end_ns[-1]:
-        if time_ns - region_end_ns[-1] < sample_period_ns * 10:
-            # region_end_ns is exclusive, so the last valid sample index is
-            # region_offset[-1] + n_samples_in_last_region - 1; expressed as
-            # (region_end_ns[-1] - region_start_ns[-1]) // sample_period_ns
+    if time_ns > rl.end_ns[-1]:
+        if time_ns - rl.end_ns[-1] < sample_period_ns * 10:
             last_sample = (
-                region_offset[-1]
-                + (region_end_ns[-1] - region_start_ns[-1]) // sample_period_ns
+                rl.offset[-1]
+                + (rl.end_ns[-1] - rl.start_ns[-1]) // sample_period_ns
                 - 1
             )
             return last_sample / sfreq
@@ -145,9 +135,7 @@ def _ns_to_sample_time(
 
 def _batch_ns_to_sample_time(
     times_ns: npt.NDArray[np.int64],
-    region_start_ns: npt.NDArray[np.int64],
-    region_end_ns: npt.NDArray[np.int64],
-    region_offset: npt.NDArray[np.int64],
+    rl: _RegionLookup,
     sample_period_ns: int,
     sfreq: float,
 ) -> npt.NDArray[np.float64]:
@@ -163,47 +151,47 @@ def _batch_ns_to_sample_time(
     # --- timestamps inside a recording region ---
     # For each timestamp find which region it could belong to:
     # the last region whose start_ns <= time_ns.
-    idx = np.searchsorted(region_start_ns, times_ns, side="right") - 1
+    idx = np.searchsorted(rl.start_ns, times_ns, side="right") - 1
     # idx == -1 means before all regions; clip to 0 for array indexing below
-    candidate = np.clip(idx, 0, len(region_start_ns) - 1)
+    candidate = np.clip(idx, 0, len(rl.start_ns) - 1)
 
-    inside = (idx >= 0) & (times_ns <= region_end_ns[candidate])
+    inside = (idx >= 0) & (times_ns <= rl.end_ns[candidate])
     if inside.any():
         t = times_ns[inside]
         r = candidate[inside]
-        sample_in_region = (t - region_start_ns[r]).astype(np.float64) / sample_period_ns
-        result[inside] = (region_offset[r] + sample_in_region) / sfreq
+        sample_in_region = (t - rl.start_ns[r]).astype(np.float64) / sample_period_ns
+        result[inside] = (rl.offset[r] + sample_in_region) / sfreq
 
     # --- timestamps in gaps between regions ---
-    n_regions = len(region_start_ns)
+    n_regions = len(rl.start_ns)
     if n_regions > 1:
         in_gap = (~inside) & (idx >= 0) & (idx < n_regions - 1)
         if in_gap.any():
             t = times_ns[in_gap]
             i = candidate[in_gap]  # region before the gap
-            dist_to_end = t - region_end_ns[i]
-            dist_to_start = region_start_ns[i + 1] - t
+            dist_to_end = t - rl.end_ns[i]
+            dist_to_start = rl.start_ns[i + 1] - t
             snap_to_end = dist_to_end <= dist_to_start
             snap_times = np.where(
                 snap_to_end,
-                (region_offset[i + 1] - 1).astype(np.float64) / sfreq,
-                region_offset[i + 1].astype(np.float64) / sfreq,
+                (rl.offset[i + 1] - 1).astype(np.float64) / sfreq,
+                rl.offset[i + 1].astype(np.float64) / sfreq,
             )
             result[in_gap] = snap_times
 
     # --- timestamps slightly before first region ---
-    before = times_ns < region_start_ns[0]
+    before = times_ns < rl.start_ns[0]
     if before.any():
-        close = before & (region_start_ns[0] - times_ns < sample_period_ns * 10)
-        result[close] = region_offset[0] / sfreq
+        close = before & (rl.start_ns[0] - times_ns < sample_period_ns * 10)
+        result[close] = rl.offset[0] / sfreq
 
     # --- timestamps slightly after last region ---
-    after = times_ns > region_end_ns[-1]
+    after = times_ns > rl.end_ns[-1]
     if after.any():
-        close = after & (times_ns - region_end_ns[-1] < sample_period_ns * 10)
+        close = after & (times_ns - rl.end_ns[-1] < sample_period_ns * 10)
         last_sample = (
-            region_offset[-1]
-            + (region_end_ns[-1] - region_start_ns[-1]) // sample_period_ns
+            rl.offset[-1]
+            + (rl.end_ns[-1] - rl.start_ns[-1]) // sample_period_ns
             - 1
         )
         result[close] = last_sample / sfreq
@@ -493,16 +481,16 @@ class MneRawDH5(BaseRaw):
 
     def _add_dh5_annotations(self, dh5: DH5File) -> None:
         """Add TRIALMAP and EV02 as MNE Annotations."""
-        region_start_ns, region_end_ns, region_offset, _ = self._region_lookup
+        rl = self._region_lookup
 
         onsets: list[float] = []
         durations: list[float] = []
         descriptions: list[str] = []
 
         # Region boundaries as BAD annotations
-        for i in range(len(region_start_ns) - 1):
-            if region_start_ns[i + 1] > region_end_ns[i]:
-                boundary_sample: float = float(region_offset[i + 1]) / self._sfreq
+        for i in range(len(rl.start_ns) - 1):
+            if rl.start_ns[i + 1] > rl.end_ns[i]:
+                boundary_sample: float = float(rl.offset[i + 1]) / self._sfreq
                 onsets.append(boundary_sample)
                 durations.append(0.0)
                 descriptions.append("BAD_region_boundary")
@@ -512,17 +500,13 @@ class MneRawDH5(BaseRaw):
         if trialmap is not None and len(trialmap) > 0:
             start_times = _batch_ns_to_sample_time(
                 trialmap.start_time_nanoseconds,
-                region_start_ns,
-                region_end_ns,
-                region_offset,
+                rl,
                 self._sample_period_ns,
                 self._sfreq,
             )
             end_times = _batch_ns_to_sample_time(
                 trialmap.end_time_nanoseconds,
-                region_start_ns,
-                region_end_ns,
-                region_offset,
+                rl,
                 self._sample_period_ns,
                 self._sfreq,
             )
@@ -542,9 +526,7 @@ class MneRawDH5(BaseRaw):
         if events_arr is not None and len(events_arr) > 0:
             event_times = _batch_ns_to_sample_time(
                 events_arr["time"],
-                region_start_ns,
-                region_end_ns,
-                region_offset,
+                rl,
                 self._sample_period_ns,
                 self._sfreq,
             )
