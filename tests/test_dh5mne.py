@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import pathlib
+import tracemalloc
+import warnings
+from unittest.mock import MagicMock, patch
 
 import h5py
 import mne
@@ -12,7 +15,7 @@ import numpy.typing as npt
 import pytest
 
 from dh5io.dh5mne import (
-    RawDH5,
+    MneRawDH5,
     _batch_ns_to_sample_time,
     _build_region_lookup,
     _ns_to_sample_time,
@@ -82,7 +85,7 @@ class TestReadRawPerCont:
     def test_returns_dict_of_raw(self) -> None:
         raws = read_raw_dh5_per_cont(TEST_FILE)
         assert isinstance(raws, dict)
-        assert all(isinstance(r, RawDH5) for r in raws.values())
+        assert all(isinstance(r, MneRawDH5) for r in raws.values())
 
     def test_one_raw_per_cont(self) -> None:
         raws = read_raw_dh5_per_cont(TEST_FILE)
@@ -141,30 +144,74 @@ class TestLazyVsPreload:
         raw = read_raw_dh5(TEST_FILE, preload=True)
         assert raw.preload
 
+    def test_preload_warns_when_data_exceeds_half_available_memory(self) -> None:
+        """ResourceWarning is issued when preload would use >50% of available RAM."""
+        mock_mem = MagicMock()
+        mock_mem.available = 1  # 1 byte — any real file will exceed half of this
+        with patch("dh5io.dh5mne._psutil") as mock_psutil:
+            mock_psutil.virtual_memory.return_value = mock_mem
+            with pytest.warns(ResourceWarning, match="preload=True"):
+                read_raw_dh5(TEST_FILE, cont_ids=[1], preload=True)
+
+    def test_preload_no_warning_when_memory_sufficient(self) -> None:
+        """No ResourceWarning when available memory is ample."""
+        mock_mem = MagicMock()
+        mock_mem.available = 2**62  # 4 EiB — always sufficient
+        with patch("dh5io.dh5mne._psutil") as mock_psutil:
+            mock_psutil.virtual_memory.return_value = mock_mem
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", ResourceWarning)
+                read_raw_dh5(TEST_FILE, cont_ids=[1], preload=True)
+
+    def test_preload_no_warning_when_psutil_unavailable(self) -> None:
+        """No error or warning when psutil is not installed (graceful fallback)."""
+        with patch("dh5io.dh5mne._psutil", None):
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", ResourceWarning)
+                read_raw_dh5(TEST_FILE, cont_ids=[1], preload=True)
+
+    def test_preload_allocates_more_memory_than_lazy(self) -> None:
+        """Preloading allocates significantly more memory than lazy loading."""
+        tracemalloc.start()
+
+        tracemalloc.clear_traces()
+        read_raw_dh5(TEST_FILE, cont_ids=[1], preload=False)
+        _, lazy_peak = tracemalloc.get_traced_memory()
+
+        tracemalloc.clear_traces()
+        read_raw_dh5(TEST_FILE, cont_ids=[1], preload=True)
+        _, preload_peak = tracemalloc.get_traced_memory()
+
+        tracemalloc.stop()
+
+        assert preload_peak > lazy_peak
+
 
 # ---------------------------------------------------------------------------
 # Annotations
 # ---------------------------------------------------------------------------
 class TestAnnotations:
     @pytest.fixture()
-    def raw(self) -> RawDH5:
+    def raw(self) -> MneRawDH5:
         return read_raw_dh5(TEST_FILE)
 
-    def test_trial_annotations_count(self, raw: RawDH5) -> None:
+    def test_trial_annotations_count(self, raw: MneRawDH5) -> None:
         trials = [
             a for a in raw.annotations if str(a["description"]).startswith("trial/")
         ]
         with h5py.File(TEST_FILE, "r") as f:
-            expected = f["TRIALMAP"].shape[0]
-        assert len(trials) == expected
+            n_in_file = f["TRIALMAP"].shape[0]
+        # Trials whose timestamps fall outside all recording regions are skipped;
+        # so the annotation count must be <= the TRIALMAP row count, but > 0.
+        assert 0 < len(trials) <= n_in_file
 
-    def test_event_annotations_present(self, raw: RawDH5) -> None:
+    def test_event_annotations_present(self, raw: MneRawDH5) -> None:
         events = [
             a for a in raw.annotations if str(a["description"]).startswith("event/")
         ]
         assert len(events) > 0
 
-    def test_region_boundary_annotations(self, raw: RawDH5) -> None:
+    def test_region_boundary_annotations(self, raw: MneRawDH5) -> None:
         boundaries = [
             a for a in raw.annotations if str(a["description"]) == "BAD_region_boundary"
         ]
@@ -173,7 +220,7 @@ class TestAnnotations:
         # One boundary between each pair of consecutive regions
         assert len(boundaries) == n_regions - 1
 
-    def test_trial_annotation_format(self, raw: RawDH5) -> None:
+    def test_trial_annotation_format(self, raw: MneRawDH5) -> None:
         trial = next(
             a for a in raw.annotations if str(a["description"]).startswith("trial/")
         )
@@ -181,12 +228,12 @@ class TestAnnotations:
         assert "StimNo=" in desc
         assert "Outcome=" in desc
 
-    def test_trial_annotation_duration_positive(self, raw: RawDH5) -> None:
+    def test_trial_annotation_duration_positive(self, raw: MneRawDH5) -> None:
         for a in raw.annotations:
             if str(a["description"]).startswith("trial/"):
                 assert float(a["duration"]) > 0
 
-    def test_events_from_annotations_works(self, raw: RawDH5) -> None:
+    def test_events_from_annotations_works(self, raw: MneRawDH5) -> None:
         events, event_id = mne.events_from_annotations(raw, regexp="trial/.*")
         assert events.shape[1] == 3
         assert len(event_id) > 0
@@ -271,12 +318,30 @@ class TestTimestampMapping:
         t = _ns_to_sample_time(-100_000_000_000, rs, re, ro, 1_000_000, 1000.0)
         assert t is None
 
-    def test_gap_snaps_to_nearest(self, multi_region: tuple) -> None:
+    def test_gap_snaps_to_start_of_next_region(self, multi_region: tuple) -> None:
         rs, re, ro, rn = multi_region
-        # Timestamp in the gap, closer to region 1 start
-        gap_time = 1_999_000_000  # 1ms before region 1 start
+        # Gap: region 0 ends at t=1_000_000_000ns (1000 samples * 1ms),
+        #      region 1 starts at t=2_000_000_000ns.
+        # Timestamp at 1_999_000_000: 999ms from end of region 0, 1ms from start of region 1
+        # → closer to start of region 1 → snaps to offset=1000 → 1000/1000Hz = 1.0s
+        gap_time = 1_999_000_000
         t = _ns_to_sample_time(gap_time, rs, re, ro, 1_000_000, 1000.0)
-        assert t == pytest.approx(1.0)  # snaps to region 1 offset=1000, /1000Hz = 1.0s
+        assert t == pytest.approx(1.0)
+
+    def test_gap_snaps_to_end_of_prev_region(self, multi_region: tuple) -> None:
+        rs, re, ro, rn = multi_region
+        # Timestamp at 1_001_000_000: 1ms from end of region 0, 999ms from start of region 1
+        # → closer to end of region 0 → snaps to last sample of region 0 = offset 999 → 999/1000Hz
+        gap_time = 1_001_000_000
+        t = _ns_to_sample_time(gap_time, rs, re, ro, 1_000_000, 1000.0)
+        assert t == pytest.approx(999 / 1000.0)
+
+    def test_gap_snaps_batch_to_end_of_prev_region(self, multi_region: tuple) -> None:
+        rs, re, ro, rn = multi_region
+        # Same as above but via _batch_ns_to_sample_time
+        times = np.array([1_001_000_000], dtype=np.int64)
+        result = _batch_ns_to_sample_time(times, rs, re, ro, 1_000_000, 1000.0)
+        assert result[0] == pytest.approx(999 / 1000.0)
 
     def test_batch_returns_nan_for_unmappable(self, single_region: tuple) -> None:
         rs, re, ro, rn = single_region

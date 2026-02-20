@@ -229,12 +229,12 @@ class Cont:
     @property
     def n_channels(self) -> int:
         """Return the number of channels in the CONT block."""
-        return self.data.shape[1]
+        return self._group[DATA_DATASET_NAME].shape[1]
 
     @property
     def n_samples(self) -> int:
         """Return the number of samples."""
-        return self.data.shape[0]
+        return self._group[DATA_DATASET_NAME].shape[0]
 
     @property
     def duration_s(self) -> float:

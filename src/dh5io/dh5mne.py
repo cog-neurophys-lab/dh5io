@@ -11,6 +11,11 @@ import pathlib
 import warnings
 from typing import Literal
 
+try:
+    import psutil as _psutil
+except ImportError:  # psutil is an optional dependency
+    _psutil = None  # type: ignore[assignment]
+
 import h5py
 import mne
 import numpy as np
@@ -24,7 +29,7 @@ __all__: list[str] = [
     "read_raw_dh5",
     "read_raw_dh5_per_cont",
     "epochs_from_dh5",
-    "RawDH5",
+    "MneRawDH5",
 ]
 
 
@@ -93,44 +98,47 @@ def _ns_to_sample_time(
 
     If the timestamp falls inside a recording region, map it exactly.
     If it falls in a gap between regions, snap to the nearest region boundary.
-    If it's before all regions or after all regions, return None.
+    If it's before all regions (within 10-sample tolerance), snap to start.
+    Returns None if the timestamp is unmappable.
     """
     n = len(region_start_ns)
 
-    # Check each region
+    # Check each region (region_end_ns is exclusive: start + N * period)
     for i in range(n):
-        if time_ns >= region_start_ns[i] and time_ns <= region_end_ns[i]:
+        if region_start_ns[i] <= time_ns <= region_end_ns[i]:
             sample_in_region = (time_ns - region_start_ns[i]) / sample_period_ns
             return (region_offset[i] + sample_in_region) / sfreq
 
     # Check gaps between regions — snap to nearest boundary
     for i in range(n - 1):
-        if time_ns > region_end_ns[i] and time_ns < region_start_ns[i + 1]:
-            # Snap to closer boundary
+        if region_end_ns[i] < time_ns < region_start_ns[i + 1]:
             dist_to_end = time_ns - region_end_ns[i]
             dist_to_start = region_start_ns[i + 1] - time_ns
             if dist_to_end <= dist_to_start:
-                # Snap to end of region i (last sample)
-                return (
-                    (region_offset[i + 1]) / sfreq
-                )  # first sample of next region = end of this
+                # Snap to last sample of region i
+                last_sample_of_i = region_offset[i + 1] - 1
+                return last_sample_of_i / sfreq
             else:
-                # Snap to start of region i+1
+                # Snap to first sample of region i+1
                 return region_offset[i + 1] / sfreq
 
-    # Before first region or after last region
+    # Before first region — allow small tolerance (10 samples)
     if time_ns < region_start_ns[0]:
-        dist = region_start_ns[0] - time_ns
-        if dist < sample_period_ns * 10:  # within 10 samples tolerance
+        if region_start_ns[0] - time_ns < sample_period_ns * 10:
             return region_offset[0] / sfreq
+
+    # After last region — allow small tolerance (10 samples)
     if time_ns > region_end_ns[-1]:
-        dist = time_ns - region_end_ns[-1]
-        if dist < sample_period_ns * 10:
-            n_total = (
+        if time_ns - region_end_ns[-1] < sample_period_ns * 10:
+            # region_end_ns is exclusive, so the last valid sample index is
+            # region_offset[-1] + n_samples_in_last_region - 1; expressed as
+            # (region_end_ns[-1] - region_start_ns[-1]) // sample_period_ns
+            last_sample = (
                 region_offset[-1]
                 + (region_end_ns[-1] - region_start_ns[-1]) // sample_period_ns
+                - 1
             )
-            return n_total / sfreq
+            return last_sample / sfreq
 
     return None
 
@@ -143,22 +151,63 @@ def _batch_ns_to_sample_time(
     sample_period_ns: int,
     sfreq: float,
 ) -> npt.NDArray[np.float64]:
-    """Vectorised version of _ns_to_sample_time for arrays.
+    """Vectorised timestamp→sample-time conversion for arrays.
 
     Returns array of sample-times in seconds; NaN for unmappable timestamps.
+
+    Uses np.searchsorted for O(T log R) performance instead of O(T*R).
     """
+    times_ns = np.asarray(times_ns, dtype=np.int64)
     result = np.full(len(times_ns), np.nan, dtype=np.float64)
-    for j, t_ns in enumerate(times_ns):
-        v = _ns_to_sample_time(
-            t_ns,
-            region_start_ns,
-            region_end_ns,
-            region_offset,
-            sample_period_ns,
-            sfreq,
+
+    # --- timestamps inside a recording region ---
+    # For each timestamp find which region it could belong to:
+    # the last region whose start_ns <= time_ns.
+    idx = np.searchsorted(region_start_ns, times_ns, side="right") - 1
+    # idx == -1 means before all regions; clip to 0 for array indexing below
+    candidate = np.clip(idx, 0, len(region_start_ns) - 1)
+
+    inside = (idx >= 0) & (times_ns <= region_end_ns[candidate])
+    if inside.any():
+        t = times_ns[inside]
+        r = candidate[inside]
+        sample_in_region = (t - region_start_ns[r]).astype(np.float64) / sample_period_ns
+        result[inside] = (region_offset[r] + sample_in_region) / sfreq
+
+    # --- timestamps in gaps between regions ---
+    n_regions = len(region_start_ns)
+    if n_regions > 1:
+        in_gap = (~inside) & (idx >= 0) & (idx < n_regions - 1)
+        if in_gap.any():
+            t = times_ns[in_gap]
+            i = candidate[in_gap]  # region before the gap
+            dist_to_end = t - region_end_ns[i]
+            dist_to_start = region_start_ns[i + 1] - t
+            snap_to_end = dist_to_end <= dist_to_start
+            snap_times = np.where(
+                snap_to_end,
+                (region_offset[i + 1] - 1).astype(np.float64) / sfreq,
+                region_offset[i + 1].astype(np.float64) / sfreq,
+            )
+            result[in_gap] = snap_times
+
+    # --- timestamps slightly before first region ---
+    before = times_ns < region_start_ns[0]
+    if before.any():
+        close = before & (region_start_ns[0] - times_ns < sample_period_ns * 10)
+        result[close] = region_offset[0] / sfreq
+
+    # --- timestamps slightly after last region ---
+    after = times_ns > region_end_ns[-1]
+    if after.any():
+        close = after & (times_ns - region_end_ns[-1] < sample_period_ns * 10)
+        last_sample = (
+            region_offset[-1]
+            + (region_end_ns[-1] - region_start_ns[-1]) // sample_period_ns
+            - 1
         )
-        if v is not None:
-            result[j] = v
+        result[close] = last_sample / sfreq
+
     return result
 
 
@@ -170,7 +219,7 @@ def read_raw_dh5(
     cont_ids: list[int] | Literal["all"] | None = None,
     preload: bool = False,
     verbose: bool | str | int | None = None,
-) -> RawDH5:
+) -> MneRawDH5:
     """Read a DH5 file as an MNE Raw object.
 
     Parameters
@@ -191,14 +240,14 @@ def read_raw_dh5(
     -------
     raw : RawDH5
     """
-    return RawDH5(fname, cont_ids=cont_ids, preload=preload, verbose=verbose)
+    return MneRawDH5(fname, cont_ids=cont_ids, preload=preload, verbose=verbose)
 
 
 def read_raw_dh5_per_cont(
     fname: str | pathlib.Path,
     preload: bool = False,
     verbose: bool | str | int | None = None,
-) -> dict[int, RawDH5]:
+) -> dict[int, MneRawDH5]:
     """Read a DH5 file, returning one Raw object per CONT group.
 
     Parameters
@@ -220,13 +269,13 @@ def read_raw_dh5_per_cont(
     cont_ids: list[int] = dh5.get_cont_group_ids()
     del dh5
     return {
-        cid: RawDH5(fname, cont_ids=[cid], preload=preload, verbose=verbose)
+        cid: MneRawDH5(fname, cont_ids=[cid], preload=preload, verbose=verbose)
         for cid in cont_ids
     }
 
 
 def epochs_from_dh5(
-    raw: RawDH5,
+    raw: MneRawDH5,
     tmin: float = 0.0,
     tmax: float | None = None,
     baseline: tuple[float | None, float | None] | None = None,
@@ -275,7 +324,7 @@ def epochs_from_dh5(
 # ---------------------------------------------------------------------------
 # RawDH5 class
 # ---------------------------------------------------------------------------
-class RawDH5(BaseRaw):
+class MneRawDH5(BaseRaw):
     """Raw object for reading DH5 files with lazy loading.
 
     Parameters
@@ -358,6 +407,21 @@ class RawDH5(BaseRaw):
             "channel_map": channel_map,
             "total_samples": total_samples,
         }
+
+        # Warn if preloading would exceed half of available memory
+        if preload:
+            n_channels = len(channel_map)
+            data_bytes = n_channels * total_samples * 8  # float64 = 8 bytes
+            if _psutil is not None:
+                avail = _psutil.virtual_memory().available
+                if data_bytes > avail // 2:
+                    warnings.warn(
+                        f"preload=True will load ~{data_bytes / 2**30:.1f} GiB into memory, "
+                        f"but only {avail / 2**30:.1f} GiB is available. "
+                        "Consider using preload=False for lazy loading.",
+                        ResourceWarning,
+                        stacklevel=3,
+                    )
 
         super().__init__(
             info,
