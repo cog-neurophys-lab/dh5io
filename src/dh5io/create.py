@@ -21,7 +21,10 @@ def create_dh_file(
     if not overwrite and os.path.exists(filename):
         raise FileExistsError(f"File {filename} already exists.")
 
-    dh5File = DH5File(filename, mode="w")
+    # create new empty HDF5 file so DH5File (which requires an existing file) can open it
+    h5py.File(filename, mode="w").close()
+
+    dh5File = DH5File(filename, mode="r+")
     h5file = dh5File._file
     h5file.attrs["FILEVERSION"] = file_version
 
