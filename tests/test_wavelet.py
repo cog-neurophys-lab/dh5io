@@ -74,7 +74,7 @@ def test_create_empty_wavelet_group(tmp_path):
         np.testing.assert_array_equal(
             wavelet_group.attrs["FrequencyAxis"], frequency_axis
         )
-        assert wavelet_group.attrs["Name"] == wavelet_group_name
+        assert wavelet_group.attrs["Name"] == wavelet_group_name.encode()
 
     # Verify by reading back
     with dh5io.DH5File(filename, "r") as dh5file:

@@ -207,7 +207,10 @@ class DH5File:
 
     @property
     def boards(self) -> list[str] | None:
-        return self._file.attrs.get(BOARDS_ATTRIBUTE_NAME)
+        val = self._file.attrs.get(BOARDS_ATTRIBUTE_NAME)
+        if val is not None:
+            return [b.decode() if isinstance(b, bytes) else b for b in val]
+        return val
 
     # cont groups
     def get_cont_groups(self) -> list[cont.Cont]:

@@ -139,6 +139,7 @@ from dh5io.errors import (
     DH5Error,
     DH5Warning,
 )
+from dh5io.hdf5_strings import ascii_str, decode_str_attr
 from dhspec.cont import (
     CONT_DTYPE_NAME,
     CONT_PREFIX,
@@ -216,12 +217,12 @@ class Cont:
     @property
     def name(self) -> str:
         """Return the name attribute."""
-        return self._group.attrs.get("Name", "")
+        return decode_str_attr(self._group.attrs.get("Name", ""))
 
     @property
     def comment(self) -> str:
         """Return the comment attribute."""
-        return self._group.attrs.get("Comment", "")
+        return decode_str_attr(self._group.attrs.get("Comment", ""))
 
     @property
     def signal_type(self) -> ContSignalType | None:
@@ -343,18 +344,18 @@ def create_empty_cont_group_in_file(
 
     # set name attribute
     if name is not None:
-        cont_group.attrs["Name"] = name
+        cont_group.attrs["Name"] = ascii_str(name)
     else:
-        cont_group.attrs["Name"] = f"CONT{cont_group_id}"
+        cont_group.attrs["Name"] = ascii_str(f"CONT{cont_group_id}")
         logger.debug(
             f"Name attribute not provided, using default {cont_group.attrs['Name']}"
         )
 
     # set comment attribute
     if comment is not None:
-        cont_group.attrs["Comment"] = comment
+        cont_group.attrs["Comment"] = ascii_str(comment)
     else:
-        cont_group.attrs["Comment"] = ""
+        cont_group.attrs["Comment"] = ascii_str("")
 
     # set signal type attribute
     if signal_type is not None:

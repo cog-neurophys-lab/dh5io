@@ -53,9 +53,9 @@ def test_add_operation_to_file(temp_h5_file):
     assert operation_group_name == "001_TestOperation"
 
     operation_group = operations_group[operation_group_name]
-    assert operation_group.attrs[OPERATIONS_TOOL_NAME] == tool
-    assert operation_group.attrs[OPERATIONS_OPERATOR_NAME_NAME] == operator_name
-    assert operation_group.attrs[OPERATIONS_ORIGINAL_FILENAME_NAME] == original_filename
+    assert operation_group.attrs[OPERATIONS_TOOL_NAME] == tool.encode()
+    assert operation_group.attrs[OPERATIONS_OPERATOR_NAME_NAME] == operator_name.encode()
+    assert operation_group.attrs[OPERATIONS_ORIGINAL_FILENAME_NAME] == original_filename.encode()
     assert np.array_equal(operation_group.attrs["Date"], datetime_to_date_array(date))
 
 

@@ -39,6 +39,7 @@ import numpy as np
 import numpy.typing as npt
 
 from dh5io.errors import DH5Error, DH5Warning
+from dh5io.hdf5_strings import ascii_str, decode_str_attr
 from dhspec.wavelet import (
     DATA_DATASET_NAME,
     DATA_DTYPE,
@@ -109,14 +110,14 @@ class Wavelet:
     def name(self) -> str:
         """Get the name attribute."""
         if "Name" in self._group.attrs:
-            return self._group.attrs["Name"]
+            return decode_str_attr(self._group.attrs["Name"])
         return self._group.name
 
     @property
     def comment(self) -> str:
         """Get the comment attribute."""
         if "Comment" in self._group.attrs:
-            return self._group.attrs["Comment"]
+            return decode_str_attr(self._group.attrs["Comment"])
         return ""
 
     @property
@@ -337,17 +338,17 @@ def create_empty_wavelet_group_in_file(
 
     # Set optional attributes
     if name is not None:
-        wavelet_group.attrs["Name"] = name
+        wavelet_group.attrs["Name"] = ascii_str(name)
     else:
-        wavelet_group.attrs["Name"] = f"WAVELET{wavelet_group_id}"
+        wavelet_group.attrs["Name"] = ascii_str(f"WAVELET{wavelet_group_id}")
         logger.debug(
             f"Name attribute not provided, using default {wavelet_group.attrs['Name']}"
         )
 
     if comment is not None:
-        wavelet_group.attrs["Comment"] = comment
+        wavelet_group.attrs["Comment"] = ascii_str(comment)
     else:
-        wavelet_group.attrs["Comment"] = ""
+        wavelet_group.attrs["Comment"] = ascii_str("")
 
     return wavelet_group
 

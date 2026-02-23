@@ -4,6 +4,7 @@ import pathlib
 import os.path
 import h5py
 import h5py.h5t as h5t
+from dh5io.hdf5_strings import ascii_str_array
 from dh5io.validation import validate_dh5_file
 from dh5io.operations import add_operation_to_file
 import numpy
@@ -28,9 +29,7 @@ def create_dh_file(
     h5file = dh5File._file
     h5file.attrs["FILEVERSION"] = file_version
 
-    h5file.attrs["BOARDS"] = numpy.array(
-        boards, dtype=h5py.string_dtype(encoding="utf-8")
-    )
+    h5file.attrs["BOARDS"] = ascii_str_array(boards)
 
     tid = h5t.py_create(numpy.dtype([("time", numpy.int64), ("offset", numpy.int64)]))
     tid.commit(h5file.id, b"CONT_INDEX_ITEM")

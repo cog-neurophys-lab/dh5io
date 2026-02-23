@@ -174,7 +174,10 @@ def test_merge_operation_recorded():
             assert "Tool" in merge_op.attrs, (
                 "Merge operation should have Tool attribute"
             )
-            assert "dh5merge" in merge_op.attrs["Tool"], "Tool should mention dh5merge"
+            tool_val = merge_op.attrs["Tool"]
+            if isinstance(tool_val, bytes):
+                tool_val = tool_val.decode()
+            assert "dh5merge" in tool_val, "Tool should mention dh5merge"
 
             if "MergedFiles" in merge_op.attrs:
                 merged_files = merge_op.attrs["MergedFiles"]
