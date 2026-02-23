@@ -1,6 +1,6 @@
 [project]
 name = "dh5io"
-version = "0.3.0"
+version = "0.4.0"
 description = "Python tools for DAQ-HDF5 (dh5) file format used at Brain Research Institute of University of Bremen"
 authors = [
     { name = "Joscha Schmiedt", email = "schmiedt@brain.uni-bremen.de" }
@@ -62,8 +62,9 @@ docs = [
     "sphinx-autodoc-typehints>=1.25.0",
     "linkify-it-py>=2.0.0",
 ]
-dhzio = ["zarr>=3.0.6"]
-all = ["dh5io[test]", "dh5io[neo]", "dh5io[dhzio]", "dh5io[browser]"]
+dhzio = ["zarr>=3.1.5"]
+all = ["dh5io[test]", "dh5io[neo]", "dh5io[dhzio]", "dh5io[browser]", "dh5io[mne]"]
 neo = ["neo"]
+mne = ["mne", "psutil"]
 browser = ["ephyviewer", "PySide6", "dh5io[neo]"]
-test = ["pytest", "pytest-cov", "dh5io[neo]", "dh5io[dhzio]"]
+test = ["pytest", "pytest-cov", "dh5io[neo]", "dh5io[dhzio]", "dh5io[mne]"]

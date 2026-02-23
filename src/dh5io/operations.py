@@ -75,12 +75,19 @@ undo entry must be added to the processing history instead.
 """
 
 import datetime
+import getpass
 import logging
 import pathlib
+import warnings
+
 import h5py
 import h5py.h5t
+import numpy as np
+
 from dh5io.ensure_h5py_file import ensure_h5py_file
-from dh5io.errors import DH5Error, DH5Warning
+from dh5io.errors import DH5Error, DH5OperationIndexWarning, DH5Warning
+from dh5io.hdf5_strings import write_str_attr
+from dh5io.version import get_version
 from dhspec.operations import (
     OPERATIONS_DATE_NAME,
     OPERATIONS_GROUP_NAME,
@@ -88,10 +95,6 @@ from dhspec.operations import (
     OPERATIONS_ORIGINAL_FILENAME_NAME,
     datetime_to_date_array,
 )
-import warnings
-import getpass
-import numpy as np
-from dh5io.version import get_version
 
 logger = logging.getLogger(__name__)
 
@@ -119,20 +122,22 @@ def add_operation_to_file(
 
     new_operation_group = operations_group.create_group(new_operation_group_name)
 
-    new_operation_group.attrs["Tool"] = tool
+    write_str_attr(new_operation_group, "Tool", tool)
 
     if operator_name is None:
         operator_name = getpass.getuser()
 
     # write attrs to file
-    new_operation_group.attrs[OPERATIONS_OPERATOR_NAME_NAME] = operator_name
+    write_str_attr(new_operation_group, OPERATIONS_OPERATOR_NAME_NAME, operator_name)
 
     if original_filename is not None:
-        new_operation_group.attrs[OPERATIONS_ORIGINAL_FILENAME_NAME] = str(
-            original_filename
+        write_str_attr(
+            new_operation_group,
+            OPERATIONS_ORIGINAL_FILENAME_NAME,
+            str(original_filename),
         )
 
-    new_operation_group.attrs["dh5io version"] = get_version()
+    write_str_attr(new_operation_group, "dh5io version", get_version())
 
     new_operation_group.attrs[OPERATIONS_DATE_NAME] = datetime_to_date_array(date)
 
@@ -155,8 +160,10 @@ def operation_index_from_name(operation_name: str) -> int:
     strId = operation_name.split("_")[0]
     if len(strId) != 3:
         warnings.warn(
-            message=f"Operation index {strId} of operation {operation_name} is not a three digit number",
-            category=DH5Warning,
+            DH5OperationIndexWarning(
+                f"Operation index {strId} of operation {operation_name} is not a three digit number"
+            ),
+            stacklevel=2,
         )
     try:
         id = int(strId)
@@ -183,4 +190,8 @@ def validate_operations(file: h5py.File):
             )
 
         if id != operation_index_from_name(op):
-            warnings.warn(DH5Warning("Operation indices are not numbered sequentially"))
+            warnings.warn(
+                DH5OperationIndexWarning(
+                    "Operation indices are not numbered sequentially"
+                )
+            )

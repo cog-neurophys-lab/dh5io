@@ -1,18 +1,19 @@
 """Test merging TRIALMAPs from multiple DH5 files."""
 
-import numpy as np
-from pathlib import Path
-import tempfile
 import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+from dh5cli.dh5merge import merge_dh5_files
+from dh5io.cont import create_cont_group_from_data_in_file, create_empty_index_array
 from dh5io.create import create_dh_file
-from dh5io.cont import create_empty_index_array, create_cont_group_from_data_in_file
 from dh5io.dh5file import DH5File
 from dh5io.trialmap import add_trialmap_to_file
-from dh5cli.dh5merge import merge_dh5_files
 from dhspec.trialmap import TRIALMAP_DATASET_DTYPE
 
 
@@ -173,39 +174,22 @@ def test_merge_with_missing_trialmaps():
             add_trialmap_to_file(dh5._file, trialmap)
 
         # Merge files
-        try:
-            merge_dh5_files([file1, file2, file3], output, overwrite=True)
+        merge_dh5_files([file1, file2, file3], output, overwrite=True)
 
-            # Verify the merged TRIALMAP (should have 5 + 7 = 12 trials)
-            with DH5File(output, mode="r") as merged:
-                merged_trialmap = merged.get_trialmap()
+        # Verify the merged TRIALMAP (should have 5 + 7 = 12 trials)
+        with DH5File(output, mode="r") as merged:
+            merged_trialmap = merged.get_trialmap()
 
-                assert merged_trialmap is not None, "Merged file should have TRIALMAP"
-                assert len(merged_trialmap) == 12, (
-                    f"Expected 12 trials, got {len(merged_trialmap)}"
-                )
-
-                # Check first trial from file 1
-                assert merged_trialmap[0].TrialNo == 1
-
-                # Check first trial from file 3 (file 2 had no trialmap)
-                assert merged_trialmap[5].TrialNo == 6
-
-            print(
-                "✓ Test passed! Merged TRIALMAPs correctly from files with mixed presence."
+            assert merged_trialmap is not None, "Merged file should have TRIALMAP"
+            assert len(merged_trialmap) == 12, (
+                f"Expected 12 trials, got {len(merged_trialmap)}"
             )
-            print("  - File 1: 5 trials")
-            print("  - File 2: No TRIALMAP")
-            print("  - File 3: 7 trials")
-            print("  - Merged: 12 trials")
-            return True
 
-        except Exception as e:
-            print(f"✗ Test failed with error: {e}")
-            import traceback
+            # Check first trial from file 1
+            assert merged_trialmap[0].TrialNo == 1
 
-            traceback.print_exc()
-            return False
+            # Check first trial from file 3 (file 2 had no trialmap)
+            assert merged_trialmap[5].TrialNo == 6
 
 
 if __name__ == "__main__":

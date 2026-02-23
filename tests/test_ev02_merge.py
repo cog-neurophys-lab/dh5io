@@ -92,46 +92,31 @@ def test_merge_event_triggers():
             add_event_triggers_to_file(dh5._file, timestamps, event_codes)
 
         # Merge files
-        try:
-            merge_dh5_files([file1, file2, file3], output, overwrite=True)
+        merge_dh5_files([file1, file2, file3], output, overwrite=True)
 
-            # Verify the merged EV02
-            with DH5File(output, mode="r") as merged:
-                merged_events = get_event_triggers_from_file(merged._file)
+        # Verify the merged EV02
+        with DH5File(output, mode="r") as merged:
+            merged_events = get_event_triggers_from_file(merged._file)
 
-                assert merged_events is not None, "Merged file should have EV02"
+            assert merged_events is not None, "Merged file should have EV02"
 
-                total_events = sum(n_events)
-                assert len(merged_events) == total_events, (
-                    f"Expected {total_events} events, got {len(merged_events)}"
-                )
+            total_events = sum(n_events)
+            assert len(merged_events) == total_events, (
+                f"Expected {total_events} events, got {len(merged_events)}"
+            )
 
-                # Check first event from file 1
-                assert merged_events[0]["time"] == 0
-                assert merged_events[0]["event"] == 1
+            # Check first event from file 1
+            assert merged_events[0]["time"] == 0
+            assert merged_events[0]["event"] == 1
 
-                # Check first event from file 2
-                assert merged_events[n_events[0]]["time"] == 20_000_000
-                assert merged_events[n_events[0]]["event"] == 5
+            # Check first event from file 2
+            assert merged_events[n_events[0]]["time"] == 20_000_000
+            assert merged_events[n_events[0]]["event"] == 5
 
-                # Check first event from file 3
-                file3_start_idx = n_events[0] + n_events[1]
-                assert merged_events[file3_start_idx]["time"] == 50_000_000
-                assert merged_events[file3_start_idx]["event"] == 3
-
-            print("✓ Test passed! EV02 datasets merged successfully.")
-            print(f"  - File 1: {n_events[0]} events")
-            print(f"  - File 2: {n_events[1]} events")
-            print(f"  - File 3: {n_events[2]} events")
-            print(f"  - Merged: {total_events} events")
-            return True
-
-        except Exception as e:
-            print(f"✗ Test failed with error: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return False
+            # Check first event from file 3
+            file3_start_idx = n_events[0] + n_events[1]
+            assert merged_events[file3_start_idx]["time"] == 50_000_000
+            assert merged_events[file3_start_idx]["event"] == 3
 
 
 def test_merge_operation_recorded():
@@ -189,7 +174,10 @@ def test_merge_operation_recorded():
             assert "Tool" in merge_op.attrs, (
                 "Merge operation should have Tool attribute"
             )
-            assert "dh5merge" in merge_op.attrs["Tool"], "Tool should mention dh5merge"
+            tool_val = merge_op.attrs["Tool"]
+            if isinstance(tool_val, bytes):
+                tool_val = tool_val.decode()
+            assert "dh5merge" in tool_val, "Tool should mention dh5merge"
 
             if "MergedFiles" in merge_op.attrs:
                 merged_files = merge_op.attrs["MergedFiles"]

@@ -126,23 +126,32 @@ region, and their respective time stamps.
 """
 
 import logging
-import h5py
 import warnings
-from dh5io.errors import DH5Error, DH5Warning
-from dhspec.cont import (
-    CalibrationType,
-    ContSignalType,
-    CONT_DTYPE_NAME,
-    CONT_PREFIX,
-    cont_id_from_name,
-    cont_name_from_id,
-    DATA_DATASET_NAME,
-    INDEX_DATASET_NAME,
-    create_empty_index_array,
-    create_channel_info,
-)
+
+import h5py
 import numpy as np
 import numpy.typing as npt
+
+from dh5io.errors import (
+    DH5CalibrationMissingWarning,
+    DH5ChannelsMissingWarning,
+    DH5DataTypeConversionWarning,
+    DH5Error,
+    DH5Warning,
+)
+from dh5io.hdf5_strings import ascii_str, decode_str_attr
+from dhspec.cont import (
+    CONT_DTYPE_NAME,
+    CONT_PREFIX,
+    DATA_DATASET_NAME,
+    INDEX_DATASET_NAME,
+    CalibrationType,
+    ContSignalType,
+    cont_id_from_name,
+    cont_name_from_id,
+    create_channel_info,
+    create_empty_index_array,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +180,7 @@ class Cont:
             """
 
     def __repr__(self):
-        return f"Cont(group={self._group.name})"
+        return f"Cont(group={self._group.name}, file={self._group.file.filename})"
 
     # properties
 
@@ -208,12 +217,12 @@ class Cont:
     @property
     def name(self) -> str:
         """Return the name attribute."""
-        return self._group.attrs.get("Name", "")
+        return decode_str_attr(self._group.attrs.get("Name", ""))
 
     @property
     def comment(self) -> str:
         """Return the comment attribute."""
-        return self._group.attrs.get("Comment", "")
+        return decode_str_attr(self._group.attrs.get("Comment", ""))
 
     @property
     def signal_type(self) -> ContSignalType | None:
@@ -229,12 +238,12 @@ class Cont:
     @property
     def n_channels(self) -> int:
         """Return the number of channels in the CONT block."""
-        return self.data.shape[1]
+        return self._group[DATA_DATASET_NAME].shape[1]
 
     @property
     def n_samples(self) -> int:
         """Return the number of samples."""
-        return self.data.shape[0]
+        return self._group[DATA_DATASET_NAME].shape[0]
 
     @property
     def duration_s(self) -> float:
@@ -267,7 +276,10 @@ class Cont:
         calib = self.calibration
         if calib is None:
             warnings.warn(
-                DH5Warning(f"Calibration attribute is missing from {self._group.name}")
+                DH5CalibrationMissingWarning(
+                    f"Calibration attribute is missing from {self._group.name}",
+                    cont_id=self.id,
+                )
             )
             return self.data.astype(np.float64)
         return self.data * calib
@@ -332,18 +344,18 @@ def create_empty_cont_group_in_file(
 
     # set name attribute
     if name is not None:
-        cont_group.attrs["Name"] = name
+        cont_group.attrs["Name"] = ascii_str(name)
     else:
-        cont_group.attrs["Name"] = f"CONT{cont_group_id}"
+        cont_group.attrs["Name"] = ascii_str(f"CONT{cont_group_id}")
         logger.debug(
             f"Name attribute not provided, using default {cont_group.attrs['Name']}"
         )
 
     # set comment attribute
     if comment is not None:
-        cont_group.attrs["Comment"] = comment
+        cont_group.attrs["Comment"] = ascii_str(comment)
     else:
-        cont_group.attrs["Comment"] = ""
+        cont_group.attrs["Comment"] = ascii_str("")
 
     # set signal type attribute
     if signal_type is not None:
@@ -381,7 +393,9 @@ def create_cont_group_from_data_in_file(
     # make sure data in integer type
     if not data.dtype == np.int16:
         warnings.warn(
-            f"Data was converted from {data.dtype} to numpy.int16", category=DH5Warning
+            DH5DataTypeConversionWarning(
+                f"Data was converted from {data.dtype} to numpy.int16"
+            )
         )
         data = data.astype(np.int16)
     cont_group["DATA"][:] = data
@@ -406,7 +420,10 @@ def get_calibrated_cont_data_by_id(file: h5py.File, cont_id: int) -> np.ndarray:
     calibration = get_cont_group_by_id_from_file(file, cont_id).attrs.get("Calibration")
     if calibration is None:
         warnings.warn(
-            DH5Warning(f"Calibration attribute is missing from CONT{cont_id}")
+            DH5CalibrationMissingWarning(
+                f"Calibration attribute is missing from CONT{cont_id}",
+                cont_id=cont_id,
+            )
         )
         return get_cont_data_by_id_from_file(file, cont_id)
     return get_cont_data_by_id_from_file(file, cont_id) * calibration
@@ -463,9 +480,13 @@ def validate_cont_group(cont_group: h5py.Group) -> None:
 
     calibration = cont_group.attrs.get("Calibration")
     if calibration is None:
+        cont_id = cont_id_from_name(cont_group.name)
         warnings.warn(
-            message=f"Calibration attribute is missing from CONT group {cont_group.name}",
-            category=DH5Warning,
+            DH5CalibrationMissingWarning(
+                f"Calibration attribute is missing from CONT group {cont_group.name}",
+                cont_id=cont_id,
+            ),
+            stacklevel=2,
         )
     else:
         if not isinstance(calibration, np.ndarray):
@@ -531,7 +552,10 @@ def validate_cont_group(cont_group: h5py.Group) -> None:
             )
     else:
         # should be an error according to specification, but is often missing
+        cont_id = cont_id_from_name(cont_group.name)
         warnings.warn(
-            message=f"Channels attribute is missing from CONT group {cont_group.name}",
-            category=DH5Warning,
+            DH5ChannelsMissingWarning(
+                f"Channels attribute is missing from CONT group {cont_group.name}",
+                cont_id=cont_id,
+            )
         )
