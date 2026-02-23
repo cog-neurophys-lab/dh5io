@@ -86,7 +86,7 @@ import numpy as np
 
 from dh5io.ensure_h5py_file import ensure_h5py_file
 from dh5io.errors import DH5Error, DH5OperationIndexWarning, DH5Warning
-from dh5io.hdf5_strings import ascii_str
+from dh5io.hdf5_strings import write_str_attr
 from dh5io.version import get_version
 from dhspec.operations import (
     OPERATIONS_DATE_NAME,
@@ -122,20 +122,22 @@ def add_operation_to_file(
 
     new_operation_group = operations_group.create_group(new_operation_group_name)
 
-    new_operation_group.attrs["Tool"] = ascii_str(tool)
+    write_str_attr(new_operation_group, "Tool", tool)
 
     if operator_name is None:
         operator_name = getpass.getuser()
 
     # write attrs to file
-    new_operation_group.attrs[OPERATIONS_OPERATOR_NAME_NAME] = ascii_str(operator_name)
+    write_str_attr(new_operation_group, OPERATIONS_OPERATOR_NAME_NAME, operator_name)
 
     if original_filename is not None:
-        new_operation_group.attrs[OPERATIONS_ORIGINAL_FILENAME_NAME] = ascii_str(
-            str(original_filename)
+        write_str_attr(
+            new_operation_group,
+            OPERATIONS_ORIGINAL_FILENAME_NAME,
+            str(original_filename),
         )
 
-    new_operation_group.attrs["dh5io version"] = ascii_str(get_version())
+    write_str_attr(new_operation_group, "dh5io version", get_version())
 
     new_operation_group.attrs[OPERATIONS_DATE_NAME] = datetime_to_date_array(date)
 

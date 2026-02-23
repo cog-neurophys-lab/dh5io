@@ -25,7 +25,6 @@ from typing import List, Optional, Set, Tuple
 import h5py
 import numpy as np
 
-from dh5io.hdf5_strings import ascii_str_array
 from dh5io.cont import Cont, create_cont_group_from_data_in_file
 from dh5io.create import create_dh_file
 from dh5io.dh5file import DH5File
@@ -33,6 +32,7 @@ from dh5io.event_triggers import (
     add_event_triggers_to_file,
     get_event_triggers_from_file,
 )
+from dh5io.hdf5_strings import write_str_attr
 from dh5io.operations import add_operation_to_file
 from dh5io.trialmap import add_trialmap_to_file, get_trialmap_from_file
 from dh5io.wavelet import (
@@ -784,7 +784,7 @@ def add_merge_operation(output_file: DH5File, input_files: List[Path]) -> None:
             operation_group = operations_group[operation_group_name]
 
             # Add custom attributes about the merge
-            operation_group.attrs["MergedFiles"] = ascii_str_array(input_filenames)
+            write_str_attr(operation_group, "MergedFiles", ", ".join(input_filenames))
             operation_group.attrs["NumberOfFiles"] = len(input_files)
 
             logger.debug(f"Added merge operation with {len(input_files)} source files")

@@ -106,7 +106,7 @@ class DH5File:
         self._file = h5py.File(filename, mode)
 
     def __del__(self):
-        if self._file:
+        if hasattr(self, "_file") and self._file:
             self._file.close()
 
     def __enter__(self):
