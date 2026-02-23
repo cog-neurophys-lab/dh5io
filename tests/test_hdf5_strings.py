@@ -2,13 +2,20 @@ import datetime
 import warnings
 
 import h5py
+import h5py.h5t as h5t
 import numpy as np
 import pytest
 
-from dh5io.create import create_dh_file
 from dh5io.cont import create_empty_cont_group_in_file
+from dh5io.create import create_dh_file
 from dh5io.errors import DH5Warning
-from dh5io.hdf5_strings import ascii_str, ascii_str_array, decode_str_attr
+from dh5io.hdf5_strings import (
+    ascii_str,
+    ascii_str_array,
+    decode_str_attr,
+    write_str_array_attr,
+    write_str_attr,
+)
 from dh5io.operations import add_operation_to_file
 from dh5io.wavelet import create_empty_wavelet_group_in_file
 from dhspec.cont import CONT_DTYPE_NAME
@@ -17,7 +24,7 @@ from dhspec.operations import (
     OPERATIONS_OPERATOR_NAME_NAME,
     OPERATIONS_ORIGINAL_FILENAME_NAME,
 )
-from dhspec.wavelet import WAVELET_DTYPE_NAME, INDEX_DTYPE
+from dhspec.wavelet import INDEX_DTYPE, WAVELET_DTYPE_NAME
 
 
 def test_ascii_str():
@@ -64,9 +71,7 @@ def test_cont_strings_are_ascii(tmp_path):
         # Create the CONT_INDEX_ITEM dtype required for CONT groups
         import h5py.h5t as h5t
 
-        tid = h5t.py_create(
-            np.dtype([("time", np.int64), ("offset", np.int64)])
-        )
+        tid = h5t.py_create(np.dtype([("time", np.int64), ("offset", np.int64)]))
         tid.commit(f.id, b"CONT_INDEX_ITEM")
 
         create_empty_cont_group_in_file(
@@ -90,9 +95,7 @@ def test_cont_default_strings_are_ascii(tmp_path):
     with h5py.File(file_path, "w") as f:
         import h5py.h5t as h5t
 
-        tid = h5t.py_create(
-            np.dtype([("time", np.int64), ("offset", np.int64)])
-        )
+        tid = h5t.py_create(np.dtype([("time", np.int64), ("offset", np.int64)]))
         tid.commit(f.id, b"CONT_INDEX_ITEM")
 
         create_empty_cont_group_in_file(
@@ -159,3 +162,99 @@ def test_create_boards_are_ascii(tmp_path):
         boards_attr = f.attrs["BOARDS"]
         for b in boards_attr:
             assert isinstance(b, bytes)
+
+
+def test_write_str_attr_nullterm_padding(tmp_path):
+    """Test that write_str_attr creates attributes with NULLTERM padding."""
+    file_path = tmp_path / "test.h5"
+
+    with h5py.File(file_path, "w") as f:
+        write_str_attr(f, "test_attr", "hello")
+
+    with h5py.File(file_path, "r") as f:
+        # Read the attribute
+        attr = f.attrs["test_attr"]
+        assert isinstance(attr, bytes)
+        assert attr == b"hello"
+
+        # Check the padding type using low-level API
+        attr_id = h5py.h5a.open(f.id, b"test_attr")
+        dtype = attr_id.get_type()
+        padding = dtype.get_strpad()
+        assert padding == h5t.STR_NULLTERM
+
+
+def test_write_str_array_attr_nullterm_padding(tmp_path):
+    """Test that write_str_array_attr creates array attributes with NULLTERM padding."""
+    file_path = tmp_path / "test.h5"
+
+    with h5py.File(file_path, "w") as f:
+        write_str_array_attr(f, "test_array", ["hello", "world", "test"])
+
+    with h5py.File(file_path, "r") as f:
+        # Read the attribute
+        attr = f.attrs["test_array"]
+        assert isinstance(attr, np.ndarray)
+        assert len(attr) == 3
+        assert list(attr) == [b"hello", b"world", b"test"]
+
+        # Check the padding type using low-level API
+        attr_id = h5py.h5a.open(f.id, b"test_array")
+        dtype = attr_id.get_type()
+        padding = dtype.get_strpad()
+        assert padding == h5t.STR_NULLTERM
+
+
+def test_write_str_array_attr_empty(tmp_path):
+    """Test that write_str_array_attr handles empty arrays."""
+    file_path = tmp_path / "test.h5"
+
+    with h5py.File(file_path, "w") as f:
+        write_str_array_attr(f, "empty_array", [])
+
+    with h5py.File(file_path, "r") as f:
+        attr = f.attrs["empty_array"]
+        assert isinstance(attr, np.ndarray)
+        assert len(attr) == 0
+
+
+def test_write_str_attr_on_dataset(tmp_path):
+    """Test that write_str_attr works on datasets as well as groups."""
+    file_path = tmp_path / "test.h5"
+
+    with h5py.File(file_path, "w") as f:
+        ds = f.create_dataset("test_dataset", data=np.array([1, 2, 3]))
+        write_str_attr(ds, "description", "test dataset")
+
+    with h5py.File(file_path, "r") as f:
+        ds = f["test_dataset"]
+        attr = ds.attrs["description"]
+        assert isinstance(attr, bytes)
+        assert attr == b"test dataset"
+
+        # Verify NULLTERM padding
+        attr_id = h5py.h5a.open(ds.id, b"description")
+        dtype = attr_id.get_type()
+        padding = dtype.get_strpad()
+        assert padding == h5t.STR_NULLTERM
+
+
+def test_write_str_array_attr_variable_lengths(tmp_path):
+    """Test that write_str_array_attr handles strings of varying lengths."""
+    file_path = tmp_path / "test.h5"
+
+    strings = ["a", "bb", "ccc", "dddd"]
+
+    with h5py.File(file_path, "w") as f:
+        write_str_array_attr(f, "var_len_array", strings)
+
+    with h5py.File(file_path, "r") as f:
+        attr = f.attrs["var_len_array"]
+        assert isinstance(attr, np.ndarray)
+        assert list(attr) == [b"a", b"bb", b"ccc", b"dddd"]
+
+        # Verify NULLTERM padding
+        attr_id = h5py.h5a.open(f.id, b"var_len_array")
+        dtype = attr_id.get_type()
+        padding = dtype.get_strpad()
+        assert padding == h5t.STR_NULLTERM
