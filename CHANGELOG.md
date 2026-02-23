@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-02-23
 
 ### Added
 
@@ -23,13 +23,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **`DH5File.get_cont_groups_by_ids(ids)`**: return CONT groups for a given list of IDs, raising `DH5Error` on missing IDs
 - **Specific `DH5Warning` subclasses** for finer-grained warning filtering:
   - `DH5CalibrationMissingWarning(cont_id=...)` — missing `Calibration` attribute on a CONT block
-  - `DH5ChannelsMissingWarning(cont_id=...)` — missing `Channels` attribute on a CONT block
+  - `kDH5ChannelsMissingWarning(cont_id=...)` — missing `Channels` attribute on a CONT block
   - `DH5DataTypeConversionWarning` — CONT data silently converted to `int16` on write
   - `DH5OperationIndexWarning` — malformed or non-sequential operation index
   - `DH5DiscontinuousRegionsWarning` — file contains multiple discontinuous CONT regions
   - `DH5SampleCountMismatchWarning` — selected CONT blocks have different sample counts
   - `DH5SampleRateMismatchWarning` — CONT blocks with non-matching sampling rates were skipped
 - **`DH5File.__str__`** improvements: CONT groups are now displayed grouped by sampling rate, with per-block channel count, sample count and region count; file-level `[continuous/discontinuous, simultaneous start]` flags shown at the section header
+- **dhfun compatibility**: How dh5io writes string attributes to the DH5 file has been changed to be maximally compatible with
+  the MATLAB tool dhfun, which uses a very old HDF5 library. In particular, this fixes errors when reading the output of dh5merge
+  with dhfun (version 1).
 
 ### Fixed
 
