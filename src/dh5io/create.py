@@ -46,6 +46,6 @@ def create_dh_file(
                 validate_cont=False,
                 validate_event_triggers=False,
             ),
-        )gg
+        )
 
     return dh5File
