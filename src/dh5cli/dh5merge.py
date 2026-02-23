@@ -24,6 +24,14 @@ from typing import List, Optional, Set, Tuple
 
 import h5py
 import numpy as np
+from tqdm import tqdm
+
+try:
+    from importlib.metadata import version as get_version
+
+    __version__ = get_version("dh5io")
+except Exception:
+    __version__ = "unknown"
 
 from dh5io.cont import Cont, create_cont_group_from_data_in_file
 from dh5io.create import create_dh_file
@@ -132,8 +140,11 @@ def merge_dh5_files(
             # Merge WAVELET blocks if present
             if wavelet_blocks_to_merge:
                 logger.info("Merging WAVELET blocks...")
-                for wavelet_id in sorted(wavelet_blocks_to_merge):
-                    logger.info(f"Merging WAVELET{wavelet_id}...")
+                for wavelet_id in tqdm(
+                    sorted(wavelet_blocks_to_merge),
+                    desc="Merging WAVELET blocks",
+                    unit="block",
+                ):
                     merge_wavelet_block(input_dh5_files, output_dh5, wavelet_id)
 
             # Add operation record about the merge
@@ -1145,7 +1156,11 @@ def main():
     # Check if running without arguments (GUI mode)
     if len(sys.argv) == 1:
         # GUI mode
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
 
         input_files, output_file, overwrite = select_files_gui()
 
@@ -1155,6 +1170,7 @@ def main():
 
         try:
             # Show message that merge is starting
+            print(f"dh5io version: {__version__}")
             print(f"Merging {len(input_files)} files...")
             for i, f in enumerate(input_files, 1):
                 print(f"  {i}. {f.name}")
@@ -1167,10 +1183,6 @@ def main():
                 output_file=output_file,
                 cont_ids=None,
                 overwrite=overwrite,
-            )
-
-            print(
-                f"\n✓ Successfully merged {len(input_files)} files into {output_file}"
             )
 
             # Show success message box
@@ -1255,9 +1267,16 @@ that are common to all input files.
 
         # Setup logging
         log_level = logging.DEBUG if args.verbose else logging.INFO
-        logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s - %(levelname)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
 
         try:
+            # Print version
+            print(f"dh5io version: {__version__}")
+
             # Convert input file paths
             input_files = [Path(f) for f in args.input_files]
 
@@ -1282,10 +1301,6 @@ that are common to all input files.
                 output_file=output_file,
                 cont_ids=args.cont_ids,
                 overwrite=args.overwrite,
-            )
-
-            print(
-                f"\n✓ Successfully merged {len(input_files)} files into {output_file}"
             )
 
         except Exception as e:

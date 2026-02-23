@@ -1,13 +1,15 @@
 import logging
-from dh5io.dh5file import DH5File
-import pathlib
 import os.path
+import pathlib
+
 import h5py
 import h5py.h5t as h5t
-from dh5io.hdf5_strings import ascii_str_array
-from dh5io.validation import validate_dh5_file
-from dh5io.operations import add_operation_to_file
 import numpy
+
+from dh5io.dh5file import DH5File
+from dh5io.hdf5_strings import ascii_str_array
+from dh5io.operations import add_operation_to_file
+from dh5io.validation import ValidationOptions, validate_dh5_file
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,13 @@ def create_dh_file(
     add_operation_to_file(h5file, "create_file", tool="dh5io", id=0)
 
     if validate:
-        validate_dh5_file(h5file)
+        validate_dh5_file(
+            h5file,
+            options=ValidationOptions(
+                validate_trialmap=False,
+                validate_cont=False,
+                validate_event_triggers=False,
+            ),
+        )gg
 
     return dh5File
