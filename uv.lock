@@ -368,7 +368,7 @@ wheels = [
 
 [[package]]
 name = "dh5io"
-version = "0.5.0"
+version = "0.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "h5py" },
