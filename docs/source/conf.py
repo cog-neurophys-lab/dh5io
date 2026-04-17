@@ -17,8 +17,8 @@ sys.path.insert(0, os.path.abspath("../../src"))
 project = "dh5io"
 copyright = "2023-2026, Universität Bremen, Joscha Schmiedt"
 author = "Joscha Schmiedt"
-release = "0.4.0"
-version = "0.4.0"
+release = "0.4.1"
+version = "0.4.1"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
