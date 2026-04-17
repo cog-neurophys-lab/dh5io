@@ -199,7 +199,7 @@ def add_write_trialmap_operation(
     if tmfkt is not None:
         write_str_attr(op_group, "tmFkt", tmfkt)
 
-    logger.info(
+    logger.debug(
         f"Added '{WRITE_TRIALMAP_OPERATION_NAME}' operation to file {file.filename}"
     )
 
