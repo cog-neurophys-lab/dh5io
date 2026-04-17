@@ -59,12 +59,19 @@ corresponding piece of signal  within `CONT` or `SPIKE` blocks.
 
 """
 
-from enum import IntEnum
+import datetime
 import logging
+from enum import IntEnum
+from typing import Mapping
+
 import h5py
-from dh5io.errors import DH5Error
 import numpy
+
+from dh5io.errors import DH5Error
 from dhspec.trialmap import TRIALMAP_DATASET_DTYPE, TRIALMAP_DATASET_NAME
+
+WRITE_TRIALMAP_OPERATION_NAME = "Write trialmap"
+WRITE_TRIALMAP_TOOL_NAME = "writeTM_TDR v1.0 by Orlando Galashan"
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +87,17 @@ class TrialOutcome(IntEnum):
     EyeErr = 7
     InexpectedStartSignal = 8
     WrongStartSignal = 9
+
+
+# Default outcome-name → integer-code mapping for the 'Write trialmap' operation.
+# Names are the BrainBox-compatible strings; values come from TrialOutcome.
+# Stored as float64 in HDF5 for backwards compatibility with the BrainBox MATLAB toolbox.
+DEFAULT_OUTCOME_CODES: dict[str, int] = {
+    "SUCCESS": TrialOutcome.Hit,
+    "EARLY": TrialOutcome.Early,
+    "LATE": TrialOutcome.Late,
+    "EYE_ERROR": TrialOutcome.EyeErr,
+}
 
 
 def add_trialmap_to_file(
@@ -105,6 +123,85 @@ def get_trialmap_from_file(file: h5py.File) -> numpy.recarray | None:
         return numpy.rec.array(
             numpy.array(trialmap_dataset, dtype=TRIALMAP_DATASET_DTYPE)
         )
+
+
+def add_write_trialmap_operation(
+    file: h5py.File,
+    outcome_codes: Mapping[str, int] | None = None,
+    operator_name: str | None = None,
+    date: datetime.datetime | None = None,
+    tdr_file: str | None = None,
+    tmfkt: str | None = None,
+    tool: str = WRITE_TRIALMAP_TOOL_NAME,
+) -> None:
+    """Add a 'Write trialmap' operation entry to the file's Operations group.
+
+    For backwards compatibility with the BrainBox MATLAB toolbox, each outcome
+    name is stored as a ``float64`` scalar attribute on the operation group —
+    even though the codes are integers conceptually.
+
+    Parameters
+    ----------
+    file:
+        The HDF5 file to write to.
+    outcome_codes:
+        Mapping of outcome name → integer code. Every entry is written as a
+        ``float64`` scalar attribute, e.g. ``{'SUCCESS': 0, 'EARLY': 1, ...}``.
+    operator_name:
+        Name of the operator. Defaults to the current OS user.
+    date:
+        Date/time of the operation. Defaults to ``datetime.datetime.now()``.
+    tdr_file:
+        Optional path to the TDR file that was used to generate the trialmap.
+    tmfkt:
+        Optional name of the MATLAB trialmap function,
+        e.g. ``'trialmap_Subject(fid)'``.
+    tool:
+        Tool name string written to the ``Tool`` attribute. Defaults to the
+        canonical BrainBox tool string.
+    """
+    from dh5io.hdf5_strings import write_str_attr
+    from dh5io.operations import add_operation_to_file, get_operations_group
+
+    if date is None:
+        date = datetime.datetime.now()
+
+    if outcome_codes is None:
+        outcome_codes = DEFAULT_OUTCOME_CODES
+
+    add_operation_to_file(
+        file,
+        WRITE_TRIALMAP_OPERATION_NAME,
+        tool=tool,
+        operator_name=operator_name,
+        date=date,
+    )
+
+    # Retrieve the group just written so we can attach outcome codes and
+    # trialmap-specific attributes to it.
+    operations_group = get_operations_group(file)
+    if operations_group is None:
+        raise DH5Error(
+            f"Operations group not found in {file.filename} after writing "
+            f"'{WRITE_TRIALMAP_OPERATION_NAME}' operation — this should not happen."
+        )
+    last_key = list(operations_group.keys())[-1]
+    op_group: h5py.Group = operations_group[last_key]
+
+    # Write each outcome name → integer code as a float64 scalar attribute.
+    # BrainBox reads these as doubles, so the dtype must be float64.
+    for name, code in outcome_codes.items():
+        op_group.attrs[name] = numpy.float64(code)
+
+    if tdr_file is not None:
+        write_str_attr(op_group, "TDR_file", str(tdr_file))
+
+    if tmfkt is not None:
+        write_str_attr(op_group, "tmFkt", tmfkt)
+
+    logger.info(
+        f"Added '{WRITE_TRIALMAP_OPERATION_NAME}' operation to file {file.filename}"
+    )
 
 
 def validate_trialmap(file: h5py.File):
