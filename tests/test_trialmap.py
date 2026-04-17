@@ -290,8 +290,6 @@ def test_add_write_trialmap_operation_date(mock_h5_file):
 
 def test_add_write_trialmap_operation_matches_test_dh5(tmp_path):
     """Replicate the exact 002_Write trialmap entry from tests/test.dh5."""
-    import pathlib
-
     reference_codes = {
         "SUCCESS": 0,
         "EARLY": 1,
