@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [0.4.1] - 2026-04-17
 
-## Added
+### Added
 
-- Add operation when adding a TRIALMAP for backwards compatibility with BrainBox.
+- Added `add_write_trialmap_operation()` helper to write an Operations entry for TRIALMAP for backwards compatibility with BrainBox.
 
 ## [0.4.0] - 2026-02-23
 
