@@ -1,6 +1,6 @@
 [project]
 name = "dh5io"
-version = "0.4.0"
+version = "0.4.1"
 description = "Python tools for DAQ-HDF5 (dh5) file format used at Brain Research Institute of University of Bremen"
 authors = [
     { name = "Joscha Schmiedt", email = "schmiedt@brain.uni-bremen.de" }
