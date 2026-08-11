@@ -37,6 +37,11 @@ from dh5neo import DH5IO
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Time span (in seconds) substituted for sources that cover a single instant.
+# ephyviewer's navigation toolbar asserts t_stop > t_start, so a source holding
+# a single spike/event would otherwise abort the browser (see DH5MainViewer.add_view).
+MIN_TIME_SPAN = 1.0
+
 try:
     import matplotlib
 
@@ -60,6 +65,18 @@ except ImportError:
     sys.exit(1)
 
 
+def has_degenerate_time_range(source) -> bool:
+    """True if a data source does not span a positive amount of time.
+
+    Empty sources report t_start == t_stop == 0, and a source holding a single
+    spike or event reports t_start == t_stop == <that time>.
+    """
+    try:
+        return not (source.t_stop > source.t_start)
+    except (AttributeError, TypeError):
+        return False
+
+
 class DH5MainViewer(ephyviewer.MainViewer):
     """Extended MainViewer that persists window state (dock visibility, positions, sizes)."""
 
@@ -67,6 +84,35 @@ class DH5MainViewer(ephyviewer.MainViewer):
         super().__init__(*args, **kwargs)
         # Note: We don't restore window state here because viewers haven't been added yet.
         # Call restore_window_state() after adding all viewers.
+
+    def add_view(self, widget, *args, **kwargs):
+        """Add a viewer, tolerating sources that cover a single instant.
+
+        MainViewer.add_view() forwards the source time range to the navigation
+        toolbar, which asserts t_stop > t_start. Files without continuous data
+        can produce sources spanning zero time, which would abort the browser.
+        """
+        source = getattr(widget, "source", None)
+        name = getattr(widget, "name", type(widget).__name__)
+
+        if source is not None and has_degenerate_time_range(source):
+            padded_stop = source.t_start + MIN_TIME_SPAN
+            logger.debug(
+                f"Padding zero-length time range of '{name}': "
+                f"t_stop {source.t_stop} -> {padded_stop}"
+            )
+            # In-memory sources store the value; computed t_stop properties ignore this
+            source._t_stop = padded_stop
+
+        try:
+            super().add_view(widget, *args, **kwargs)
+        except AssertionError:
+            # The dock widget is registered before the navigation range is updated,
+            # so the viewer itself is usable - only the time range update failed.
+            logger.warning(
+                f"Viewer '{name}' has no usable time range; "
+                "keeping the current navigation range"
+            )
 
     def restore_window_state(self):
         """Restore window geometry and dock widget state from settings.
@@ -865,8 +911,12 @@ def create_browser(
         # Add viewers for different data types
         view_count = 0
 
-        # Extract individual sources from the lists
-        spike_sources = sources.get("spike", [])
+        # Extract individual sources from the lists. get_sources_from_neo_segment()
+        # always returns a spike source, even when the segment has no spike trains,
+        # so drop the ones without channels rather than building empty viewers.
+        spike_sources = [
+            source for source in sources.get("spike", []) if source.nb_channel > 0
+        ]
         # No longer need to extract trial epochs - they're loaded globally
 
         # Combine all analog signals into a single multi-channel source
@@ -922,6 +972,11 @@ def create_browser(
             viewer_source = trace_viewer_widget.source
             initial_t_start = viewer_source.t_start  # type: ignore[attr-defined]
             initial_t_stop = viewer_source.t_stop  # type: ignore[attr-defined]
+        else:
+            logger.info(
+                f"Trial {trial_idx} has no continuous data; "
+                "only events/epochs will be shown"
+            )
 
         # Reuse or create spike train viewers
         logger.debug("Updating spike/event/epoch viewers")
@@ -1011,6 +1066,9 @@ def create_browser(
         if initial_t_start is not None:
             # Update the navigation toolbar's global time limits
             # This is crucial - otherwise the toolbar keeps the old trial's time range
+            # set_start_stop() asserts t_stop > t_start, so pad empty signals
+            if initial_t_stop is None or initial_t_stop <= initial_t_start:
+                initial_t_stop = initial_t_start + MIN_TIME_SPAN
             win.navigation_toolbar.set_start_stop(
                 initial_t_start, initial_t_stop, seek=False
             )
@@ -1047,7 +1105,7 @@ def create_browser(
     load_trial(trial_index)
 
     # Add global epoch viewer with ALL trials and events (created once, never reloaded)
-    if global_event_epoch_source:
+    if global_event_epoch_source and global_event_epoch_source[0].nb_channel > 0:
         logger.debug("Adding global epoch viewer with trials and events")
         source, source_name = global_event_epoch_source
 
