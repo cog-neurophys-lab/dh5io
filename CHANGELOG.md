@@ -1,5 +1,6 @@
 # Changelog for dh5io
 
-The changelog now lives with the documentation: [docs/source/changelog.md](docs/source/changelog.md).
+The changelog now lives with the documentation: [docs/source/changelog.md](docs/source/changelog.md),
+rendered at <https://dh5io.readthedocs.io/en/latest/changelog.html>.
 
 Please add new entries there, so the rendered documentation stays the single source of truth.
